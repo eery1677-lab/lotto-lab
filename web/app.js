@@ -525,6 +525,8 @@
 
   function md(text) {
     // 안전한 최소 마크다운: 이스케이프 후 굵게·목록·표·단락
+    // 작은 모델이 섞어 쓰는 수식 기호($\text{…}$, $…$) 제거
+    text = text.replace(/\$\\text\{([^}]*)\}\$/g, "$1").replace(/\$([^$\n]{1,40})\$/g, "$1");
     const lines = esc(text).split("\n");
     let out = "", list = null, table = [];
     const flushList = () => { if (list) { out += `<${list}>` + listItems.join("") + `</${list}>`; list = null; listItems = []; } };
@@ -541,7 +543,8 @@
       table = [];
     };
     for (const raw of lines) {
-      const line = raw.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/^#{1,4}\s*(.+)$/, "<b>$1</b>");
+      const line = raw.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/^#{1,4}\s*(.+)$/, "<b>$1</b>")
+        .replace(/(https?:\/\/[^\s<)\]，,]+[^\s<)\]，,.。])/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
       if (/^\s*\|.*\|\s*$/.test(raw)) { flushList(); table.push(line); continue; }
       flushTable();
       const ul = line.match(/^\s*[-*•]\s+(.*)$/), ol = line.match(/^\s*\d+[.)]\s+(.*)$/);

@@ -6,6 +6,7 @@ LM Studio(OpenAI 호환)의 tools/tool_calls 형식. 각 도구는 (결과 dict)
 import json
 import re
 
+import knowledge
 import tickets
 from analysis import TAX_BRACKET, TAX_FREE_LIMIT, TICKET_COST, after_tax
 
@@ -51,6 +52,12 @@ TOOLS = [
             "numbers": {"type": "array", "items": {"type": "integer"}, "description": "서로 다른 1~45 숫자 6개"}},
             "required": ["numbers"]}}},
     {"type": "function", "function": {
+        "name": "search_research",
+        "description": "로또 연구·논문·해외 사례(미국 Cash WinFall, 만델 등)·AI 예측 연구·휠링·추첨기 편향·한국 상금 규칙과 세금·1057회 같은 사건의 근거와 출처를 찾는다. 연구·사례·근거·출처를 묻는 질문에 쓴다.",
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string", "description": "찾을 주제. 예: '미국 로또 당첨 사례', 'AI 예측 논문'"}},
+            "required": ["query"]}}},
+    {"type": "function", "function": {
         "name": "after_tax",
         "description": "당첨금(1인당, 세전)을 넣으면 세금과 실수령액을 계산한다. 세금·실수령액 질문에는 직접 계산하지 말고 반드시 이 도구를 쓴다.",
         "parameters": {"type": "object", "properties": {
@@ -62,7 +69,7 @@ TOOLS = [
         "parameters": {"type": "object", "properties": {}}}},
 ]
 
-NAMES_KO = {"after_tax": "세후 계산", "get_draw": "회차 조회", "number_stats": "번호 통계", "top_numbers": "번호 순위", "find_draws": "회차 찾기",
+NAMES_KO = {"search_research": "연구 찾기", "after_tax": "세후 계산", "get_draw": "회차 조회", "number_stats": "번호 통계", "top_numbers": "번호 순위", "find_draws": "회차 찾기",
             "generate_numbers": "번호 생성", "check_numbers": "번호 검사", "my_tickets": "구매 기록"}
 
 
@@ -182,6 +189,20 @@ def run(a, name, args):
                                          "최고 일치": hc["best"]["match"], "그 회차": hc["best"]["no"],
                                          "과거 1등과 완전히 같은 회차": hc["exact"]}}
 
+        if name == "search_research":
+            found = knowledge.search(str(args.get("query") or ""))
+            if not found:
+                return {"결과": "해당 주제의 조사 자료가 없음", "조사된 주제 목록": knowledge.titles()}
+            def note(level):
+                if level.startswith("미확인"):
+                    return "[확인하지 못한 내용] "
+                if level.startswith("2차"):
+                    return "[기사·요약으로만 확인된 내용] "
+                return ""
+            return {"찾은 자료": [{"제목": e["title"], "내용": note(e["level"]) + e["summary"], "확인 수준": e["level"], "출처": e["source"]}
+                               for e in found],
+                    "안내": "확인 수준이 '2차'나 '미확인'이면 그렇다고 밝히고, 답 끝에 출처 주소를 그대로 적는다."}
+
         if name == "after_tax":
             amt = int(float(str(args.get("amount")).replace(",", "")))
             if amt < 0:
@@ -224,6 +245,8 @@ def label(name, args):
         return f"{ko}: {args['no']}회"
     if name in ("number_stats",) and args.get("number"):
         return f"{ko}: {args['number']}번" + (f" ({args['year']}년)" if args.get("year") else "")
+    if name == "search_research" and args.get("query"):
+        return f"{ko}: {str(args['query'])[:30]}"
     if name in ("check_numbers", "find_draws") and args.get("numbers"):
         return f"{ko}: {' '.join(map(str, args['numbers']))}"
     return ko

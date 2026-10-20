@@ -138,8 +138,13 @@ TOOL_RULES = """
 - 도구 결과에 있는 숫자만 옮겨 쓴다. 도구 결과끼리 더하거나 나눠서 새 숫자를 만들지 않는다.
 - 도구가 '오류'를 돌려주면 그 내용을 그대로 알린다. 도구로 알 수 없는 것은 "자료에 없습니다"라고 말한다.
 - 도구 결과의 '주의' 문장은 답에 반영한다(과거 횟수는 앞으로의 확률과 무관).
+- 연구·논문·해외 사례·AI 예측·휠링·추첨기·상금 규칙·근거를 묻는 질문은 search_research 를 먼저 부른다.
+  찾은 자료의 내용만 쓰고, 답 마지막 줄에 "출처:" 다음에 쓴 자료의 출처 주소를 그대로 적는다(주소를 바꾸거나 지어내지 않는다).
+  확인 수준이 '2차'·'미확인'이면 "기사·요약으로만 확인된 내용" / "확인하지 못한 내용"이라고 밝힌다.
 """
 
+RESEARCH = re.compile(r"논문|연구|출처|근거|사례|해외|외국|미국|영국|독일|이스라엘|네덜란드|캐나다|이탈리아|만델|윈폴|winfall|MIT|휠링|"
+                      r"LSTM|딥러닝|머신러닝|깃허브|허깅|조작|추첨기|AI\s*예측|인공지능", re.I)
 RECOMMEND = re.compile(r"(번호|조합|게임).{0,10}(추천|뽑|골라|만들|생성)|(추천|뽑아|골라|만들어).{0,8}(번호|조합|게임)")
 
 
@@ -149,6 +154,8 @@ def forced_tool(question):
         return "check_numbers"
     if RECOMMEND.search(question):
         return "generate_numbers"
+    if RESEARCH.search(question):
+        return "search_research"
     return None
 
 
@@ -200,7 +207,17 @@ def _lms_post(base, body, stream):
     def send(b):
         req = urllib.request.Request(base + "/v1/chat/completions", data=json.dumps(b).encode("utf-8"),
                                      headers={"Content-Type": "application/json"})
-        return urllib.request.urlopen(req, timeout=600)
+        # 다른 앱(거래처·삐삐 등)이 다른 모델을 불러오는 순간 LM Studio 가 5xx 를 낼 수 있다 → 잠시 뒤 다시
+        for wait in (3, 8, None):
+            try:
+                return urllib.request.urlopen(req, timeout=600)
+            except urllib.error.HTTPError as e:
+                if e.code < 500 or wait is None:
+                    raise
+            except urllib.error.URLError:
+                if wait is None:
+                    raise
+            time.sleep(wait)
     b = dict(body, stream=stream, reasoning_effort="none")
     attempts = [lambda x: x, lambda x: x.pop("reasoning_effort", None),
                 lambda x: (x.pop("tools", None), x.pop("tool_choice", None))]
