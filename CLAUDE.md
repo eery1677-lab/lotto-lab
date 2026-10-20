@@ -19,6 +19,13 @@
   urllib 실패 시 curl 재시도(맥 python.org 인증서 문제). 회차 누락·번호 이상·회차 수 감소면 저장 안 함.
 - `web/app.js` 캐시: `index.html` 의 `?v=` 를 올릴 것.
 
+## 바탕화면 아이콘 (윈도우, 2026-10-20)
+
+- `바탕화면\로또 확률 연구소.lnk` → `wscript launcher\로또연구소_실행.vbs`(UTF-16 LE+BOM, 한글 때문) → 3600 이 꺼져 있으면
+  `pythonw server.py --no-browser` 로 창 없이 켜고(켜질 때 새 회차 자동 수집), 크롬 `--app` 창(프로필 `%LOCALAPPDATA%\LottoLab\ChromeProfile`, 이름 LottoLab).
+  켜져 있으면 서버는 건드리지 않고 창만. 확인 모드 `/dry`, 기록 `launcher\실행기록.txt`. 아이콘 `launcher\lotto.ico`, 파비콘 `web/icon-64.png`.
+- 시험: 꺼진 상태에서 실행 → 서버 응답·앱 창 확인, 3000(고객관리) 프로세스 번호 그대로.
+
 ## 인기 모델 (analysis.py `_popularity`)
 
 1. 5등 당첨자 수 ÷ (판매게임 × 5등 확률) 의 로그를 당첨번호 6개의 번호별 가중치 합으로 릿지 회귀 → 번호 45개 인기도.

@@ -2,3 +2,4 @@ __pycache__/
 *.pyc
 data/*.tmp
 .DS_Store
+launcher/실행기록.txt

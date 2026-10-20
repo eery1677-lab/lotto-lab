@@ -11,7 +11,7 @@
 | | 방법 |
 |---|---|
 | 맥 | `start_mac.command` 더블클릭 (처음엔 우클릭 → 열기). 또는 터미널에서 `python3 server.py` |
-| 윈도우 | `start_windows.bat` 더블클릭. 또는 `python server.py` |
+| 윈도우 | 바탕화면 **"로또 확률 연구소"** 아이콘(꺼져 있으면 서버를 창 없이 켜고 전용 크롬 창으로 엶). 또는 `start_windows.bat`, `python server.py` |
 
 - 주소: <http://127.0.0.1:3600> (이 컴퓨터에서만 접속)
 - 아이패드·폰에서도 보려면: `python3 server.py --lan` 후 `http://(맥 IP):3600`
