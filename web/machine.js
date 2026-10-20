@@ -93,30 +93,45 @@
     air = air.filter((b) => Math.hypot(b.x - CX, b.y - CY) < R - 8 && simT - b.t0 < 1.4);
 
     const inb = balls.filter((b) => b.s === "in" || b.s === "pull");
+    const g = 900 * (1 - 0.62 * k);                  // 섞는 동안은 공기에 떠서 중력이 약해진다
+    const target = 60 + 330 * k * k;                  // 이 속도 밑으로 느려지면 다시 휘저어 준다
+    const phase = simT * 3.1;
     for (const b of inb) {
-      b.vy += 900 * h;
-      if (b.y > CY - R * 0.15) {
-        b.vy -= 700 * k * h * (0.25 + 0.75 * Math.random());
-        b.vx += (Math.random() - 0.5) * 1400 * k * h;
+      b.vy += g * h;
+      if (b.s === "pull") {                            // 뽑힌 공: 난류 없이 출구로
+        const ex = MOUTH.x - b.x, ey = MOUTH.y - b.y, ed = Math.hypot(ex, ey) || 1;
+        b.vx += (ex / ed) * 3400 * h; b.vy += (ey / ed) * 3400 * h - 600 * h;
+        continue;
       }
       const dx = b.x - CX, dy = b.y - CY, d = Math.hypot(dx, dy) || 1;
-      b.vx += (-dy / d) * 260 * k * h; b.vy += (dx / d) * 260 * k * h;
-      if (b.s === "pull") {
-        const ex = MOUTH.x - b.x, ey = MOUTH.y - b.y, ed = Math.hypot(ex, ey) || 1;
-        b.vx += (ex / ed) * 3200 * h; b.vy += (ey / ed) * 3200 * h - 720 * h;
+      // 1) 아래 가운데에서 뿜어 올리는 분수 바람(좌우로 살랑살랑 흔들림)
+      const jx = CX + Math.sin(phase) * 46, jet = Math.exp(-Math.pow((b.x - jx) / 52, 2));
+      if (b.y > CY - R * 0.5) b.vy -= 4200 * k * jet * h * (0.55 + 0.45 * Math.random());
+      // 2) 통 전체를 도는 소용돌이(바깥쪽일수록 세게)
+      const sw = k * 150 * h;   // 소용돌이는 약하게(세면 공이 벽을 따라 고리로 몰림)
+      b.vx += (-dy / d) * sw; b.vy += (dx / d) * sw;
+      // 3) 어디서나 일어나는 난류
+      b.vx += (Math.random() - 0.5) * 5200 * k * h; b.vy += (Math.random() - 0.5) * 5200 * k * h;
+      // 4) 에너지 유지: 너무 느리면 지금 방향(없으면 아무 방향)으로 밀어 준다
+      const sp = Math.hypot(b.vx, b.vy);
+      if (sp < target) {
+        const ux = sp > 8 ? b.vx / sp : Math.cos(Math.random() * 6.283), uy = sp > 8 ? b.vy / sp : Math.sin(Math.random() * 6.283);
+        b.vx += ux * (target - sp) * 7 * h; b.vy += uy * (target - sp) * 7 * h;
       }
     }
     for (const b of inb) {
       b.vx *= 0.9985; b.vy *= 0.9985;
       const sp = Math.hypot(b.vx, b.vy);
-      if (sp > 760) { b.vx *= 760 / sp; b.vy *= 760 / sp; }
+      const cap = 520 + 260 * k;
+      if (sp > cap) { b.vx *= cap / sp; b.vy *= cap / sp; }
       b.x += b.vx * h; b.y += b.vy * h;
+      b.rot = (b.rot || 0) + ((b.vx - b.vy * 0.3) / BR) * h;   // 구르는 회전
       const dx = b.x - CX, dy = b.y - CY, d = Math.hypot(dx, dy);
       if (d > R - BR) {
         const nx = dx / d, ny = dy / d;
         b.x = CX + nx * (R - BR); b.y = CY + ny * (R - BR);
         const vn = b.vx * nx + b.vy * ny;
-        if (vn > 0) { b.vx -= 1.8 * vn * nx; b.vy -= 1.8 * vn * ny; if (vn > 260) tick(); }
+        if (vn > 0) { b.vx -= 1.92 * vn * nx; b.vy -= 1.92 * vn * ny; if (vn > 260) tick(); }
       }
     }
     for (let i = 0; i < inb.length; i++) {
@@ -173,7 +188,7 @@
     if (p.next < p.order.length && simT >= p.nextAt) {
       const b = balls.find((x) => x.n === p.order[p.next]);
       b.s = "pull"; b.m = 3; b.pullT = simT; b.slot = p.next;
-      pulls.push(b); p.next++; p.nextAt = simT + 0.85; mixLevel = 0.8;
+      pulls.push(b); p.next++; p.nextAt = simT + 0.9; mixLevel = 0.85;
     }
     for (const b of pulls.slice()) {
       if (Math.hypot(b.x - MOUTH.x, b.y - MOUTH.y) < 24 || simT - b.pullT > 1.5) { pulls.splice(pulls.indexOf(b), 1); b.m = 1; startTravel(b, b.slot); }
@@ -197,7 +212,7 @@
     ctx.lineWidth = w; ctx.strokeStyle = style; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.stroke();
   }
 
-  function drawBall(x, y, r, n) {
+  function drawBall(x, y, r, n, rot) {
     const p = pal(n);
     let g = ctx.createRadialGradient(x - r * 0.4, y - r * 0.45, r * 0.05, x, y, r * 1.04);
     g.addColorStop(0, p.light); g.addColorStop(0.38, p.base); g.addColorStop(0.85, p.mid); g.addColorStop(1, p.dark);
@@ -209,7 +224,8 @@
     ctx.beginPath(); ctx.arc(x, y, lr, 0, Math.PI * 2); ctx.fillStyle = g; ctx.fill();
     ctx.lineWidth = Math.max(0.6, r * 0.04); ctx.strokeStyle = "rgba(0,0,0,.18)"; ctx.stroke();
     ctx.fillStyle = "#1b2433"; ctx.font = `800 ${Math.round(r * (n > 9 ? 0.7 : 0.82))}px ${FONT}`;
-    ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(String(n), x, y + r * 0.04);
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    if (rot) { ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.fillText(String(n), 0, r * 0.04); ctx.restore(); } else ctx.fillText(String(n), x, y + r * 0.04);
     // 빛 반사
     ctx.beginPath(); ctx.ellipse(x - r * 0.42, y - r * 0.52, r * 0.3, r * 0.15, -0.65, 0, Math.PI * 2); ctx.fillStyle = "rgba(255,255,255,.78)"; ctx.fill();
     ctx.beginPath(); ctx.arc(x, y, r * 0.86, Math.PI * 0.12, Math.PI * 0.55); ctx.lineWidth = r * 0.1; ctx.strokeStyle = "rgba(255,255,255,.22)"; ctx.lineCap = "round"; ctx.stroke();
@@ -289,8 +305,15 @@
     ctx.save(); ctx.beginPath(); ctx.arc(CX, CY, R - 4, 0, Math.PI * 2); ctx.clip();
     for (const b of air) { ctx.globalAlpha = 0.45 * (1 - (simT - b.t0) / 1.4); ctx.fillStyle = "#cfe0ff"; ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill(); }
     ctx.globalAlpha = 1;
+    for (const b of balls) if (b.s === "in" || b.s === "pull") {      // 빠른 공의 잔상
+      if (b.dx0 != null) {
+        const mx = b.x - b.dx0, my = b.y - b.dy0, ml = Math.hypot(mx, my);
+        if (ml > 5 && ml < 110) { ctx.globalAlpha = Math.min(0.2, ml / 240); line([{ x: b.dx0, y: b.dy0 }, { x: b.x, y: b.y }], BR * 1.15, pal(b.n).base); ctx.globalAlpha = 1; }
+      }
+      b.dx0 = b.x; b.dy0 = b.y;
+    }
     for (const b of balls) if (b.s === "in" || b.s === "pull") {
-      if (b.s === "pull") { ctx.save(); ctx.shadowColor = GOLD; ctx.shadowBlur = 14; drawBall(b.x, b.y, BR, b.n); ctx.restore(); } else drawBall(b.x, b.y, BR, b.n);
+      if (b.s === "pull") { ctx.save(); ctx.shadowColor = GOLD; ctx.shadowBlur = 14; drawBall(b.x, b.y, BR, b.n, b.rot); ctx.restore(); } else drawBall(b.x, b.y, BR, b.n, b.rot);
     }
     ctx.restore();
     // 유리 반사와 가장자리 빛
@@ -384,7 +407,7 @@
       const order = nums.slice();
       for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
       mixLevel = 1;
-      play = { order, next: 0, nextAt: simT + 1.2, onBall: opts.onBall, onDone: opts.onDone, done: false };
+      play = { order, next: 0, nextAt: simT + 2.1, onBall: opts.onBall, onDone: opts.onDone, done: false };
       kick();
       return true;
     },
@@ -406,6 +429,8 @@
     advance(sec) { const n = Math.round(sec * 90); for (let i = 0; i < n; i++) step(1 / 90); if (visible()) draw(); },
     isPlaying() { return !!play; },
     tray() { return tray.map((b) => b.n); },
+    /** 시험용: 통 안 공의 평균 속도와 위·아래 분포. */
+    stats() { const a = balls.filter((b) => b.s === "in" || b.s === "pull"); const sp = a.reduce((t, b) => t + Math.hypot(b.vx, b.vy), 0) / a.length; return { avgSpeed: Math.round(sp), topHalf: a.filter((b) => b.y < CY).length, core: a.filter((b) => Math.hypot(b.x - CX, b.y - CY) < R * 0.5).length, bottomThird: a.filter((b) => b.y > CY + R * 0.45).length, total: a.length }; },
     ballsInDrum() { return balls.filter((b) => b.s === "in" || b.s === "pull").length; },
   };
   window.LottoMachine = api;
