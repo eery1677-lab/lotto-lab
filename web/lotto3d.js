@@ -10,7 +10,7 @@ const FACE = { phi0: Math.PI / 2 - 0.95, phiLen: 1.9, th0: 0.95, thLen: 0.95 };
 const INK = "#1b2433";
 
 // ---------------------------------------------------------------- 얼굴 그리기(2D → 텍스처)
-function drawFace(g, mood, blink, look, mouthOpen) {
+function drawFace(g, mood, blink, look, mouthOpen, girl) {
   g.clearRect(0, 0, FW, FH);
   g.lineCap = "round"; g.lineJoin = "round";
   const EL = [193, 135], ER = [447, 135];
@@ -28,7 +28,7 @@ function drawFace(g, mood, blink, look, mouthOpen) {
   };
   // 볼터치
   const bl = mood === "happy" || mood === "wink" ? 0.6 : 0.4;
-  g.fillStyle = `rgba(255,105,95,${bl})`;
+  g.fillStyle = girl ? `rgba(255,70,120,${bl + 0.2})` : `rgba(255,105,95,${bl})`;
   g.beginPath(); g.ellipse(92, 208, 40, 21, 0, 0, 7); g.fill(); g.beginPath(); g.ellipse(548, 208, 40, 21, 0, 0, 7); g.fill();
   // 눈썹
   const by = 34;
@@ -51,6 +51,13 @@ function drawFace(g, mood, blink, look, mouthOpen) {
   else if (mood === "firm") { dot(EL[0], EL[1] + 2, 15); dot(ER[0], ER[1] + 2, 15); }
   else if (mood === "worry") { dot(EL[0], EL[1] + 6, 17); dot(ER[0], ER[1] + 6, 17); }
   else { dot(EL[0], EL[1], 17); dot(ER[0], ER[1], 17); }
+  if (girl) {                                       // 속눈썹
+    g.strokeStyle = INK; g.lineWidth = 7;
+    for (const [x, y, s] of [[EL[0], EL[1], -1], [ER[0], ER[1], 1]]) {
+      const yy = closed || mood === "happy" || (mood === "wink" && s > 0) ? y + 4 : y - 6;
+      for (const [dx, dy, ex, ey] of [[20, -4, 38, -14], [24, 4, 44, 2], [16, -12, 28, -28]]) { g.beginPath(); g.moveTo(x + s * dx, yy + dy); g.lineTo(x + s * ex, yy + ey); g.stroke(); }
+    }
+  }
   // 입
   g.strokeStyle = "#7a3b00"; g.lineWidth = 9;
   const mx = 320, my = 226;
@@ -106,7 +113,8 @@ const ease = (x) => 1 - Math.pow(1 - x, 3);
 
 // ---------------------------------------------------------------- 캐릭터
 class Lotto {
-  constructor() {
+  constructor(variant) {
+    this.girl = variant === "girl";
     this.group = new THREE.Group();     // 사용자가 돌리는 회전
     this.rig = new THREE.Group();       // 통통·찌그러짐 등 동작
     this.group.add(this.rig);
@@ -116,11 +124,11 @@ class Lotto {
     this.look = { x: 0, y: 0 }; this.lookT = { x: 0, y: 0 }; this.lookOverride = null; this.shownLook = { x: 0, y: 0 };
     this.talking = false; this.talkT = 0; this.mouth = null; this.faceDirty = false; this.lastFace = 0;
     this.act = null; this.actIn = 4 + Math.random() * 3; this.lastAct = "";
-    const gold = new THREE.MeshPhysicalMaterial({ color: 0xffc400, roughness: 0.28, clearcoat: 1, clearcoatRoughness: 0.12 });
-    const white = new THREE.MeshStandardMaterial({ color: 0xf7f9fd, roughness: 0.7 });
+    const gold = new THREE.MeshPhysicalMaterial({ color: this.girl ? 0xff9cc2 : 0xffc400, roughness: 0.28, clearcoat: 1, clearcoatRoughness: 0.12 });
+    const white = new THREE.MeshStandardMaterial({ color: this.girl ? 0xfff2f8 : 0xf7f9fd, roughness: 0.7 });
     const navy = new THREE.MeshStandardMaterial({ color: 0x1f2a52, roughness: 0.5 });
     const navy2 = new THREE.MeshStandardMaterial({ color: 0x141b3a, roughness: 0.45 });
-    const red = new THREE.MeshStandardMaterial({ color: 0xe23b3b, roughness: 0.4 });
+    const red = new THREE.MeshStandardMaterial({ color: this.girl ? 0xff4f8b : 0xe23b3b, roughness: 0.4 });
     const goldM = new THREE.MeshStandardMaterial({ color: 0xffcf3f, roughness: 0.3, metalness: 0.7 });
     const frame = new THREE.MeshStandardMaterial({ color: 0x1b2433, roughness: 0.3, metalness: 0.5 });
 
@@ -153,6 +161,7 @@ class Lotto {
       gl.add(cylBetween(new THREE.Vector3(sx * 0.62, 0.22, 0.83), new THREE.Vector3(sx * 0.97, 0.2, 0.2), 0.02, frame));
     }
     gl.add(cylBetween(new THREE.Vector3(-0.1, 0.24, 0.95), new THREE.Vector3(0.1, 0.24, 0.95), 0.022, frame));
+    if (this.girl) gl.visible = false;
     // 박사모
     const cap = new THREE.Group(); cap.rotation.set(-0.06, 0, -0.05); body.add(cap); this.cap = cap;
     const base = new THREE.Mesh(new THREE.CylinderGeometry(0.58, 0.66, 0.26, 40), navy); base.position.y = 0.84; cap.add(base);
@@ -162,6 +171,14 @@ class Lotto {
     this.tassel = new THREE.Group(); this.tassel.position.set(1.2, 1.05, 0); cap.add(this.tassel);
     this.tassel.add(cylBetween(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, -0.3, 0), 0.016, goldM));
     const tc = new THREE.Mesh(new THREE.ConeGeometry(0.075, 0.24, 14), goldM); tc.rotation.x = Math.PI; tc.position.y = -0.42; this.tassel.add(tc);
+    if (this.girl) {                // 여자친구: 박사모 대신 큰 리본
+      cap.children.forEach((c) => { c.visible = false; });
+      const rib = new THREE.Group(), rp = new THREE.Vector3(-0.58, 0.8, 0.22); rib.position.copy(rp); rib.lookAt(rp.clone().multiplyScalar(3)); rib.rotateZ(0.5);
+      const ribM = new THREE.MeshStandardMaterial({ color: 0xff3d7f, roughness: 0.35 });
+      for (const sx of [-1, 1]) { const w = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.5, 20), ribM); w.rotation.z = (sx * Math.PI) / 2; w.position.x = sx * 0.27; rib.add(w); }
+      rib.add(new THREE.Mesh(new THREE.SphereGeometry(0.11, 16, 16), new THREE.MeshStandardMaterial({ color: 0xffd23f, roughness: 0.3, metalness: 0.5 })));
+      cap.add(rib);
+    }
     // 팔·발
     this.arms = [];
     for (const sx of [-1, 1]) {
@@ -189,7 +206,7 @@ class Lotto {
     for (const s of Object.values(this.syms)) s.visible = false;
   }
   redraw() {
-    drawFace(this.faceG, this.mood, this.blink, this.look, this.mouth);
+    drawFace(this.faceG, this.mood, this.blink, this.look, this.mouth, this.girl);
     this.shownLook = { x: this.look.x, y: this.look.y }; this.lastFace = this.t; this.faceDirty = false; this.faceTex.needsUpdate = true;
   }
   setWalk(on, dir, gait) { this.walking = !!on; if (dir) this.walkDir = dir; if (gait) this.gait = gait; }
@@ -336,7 +353,7 @@ const Lotto3D = {
     renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
     const canvas = renderer.domElement; canvas.className = "lotto3d-canvas"; el.appendChild(canvas);
     const scene = new THREE.Scene(); addLights(scene);
-    const ch = new Lotto(); scene.add(ch.group);
+    const ch = new Lotto(opts.variant); scene.add(ch.group);
     const cam = new THREE.PerspectiveCamera(28, 1, 0.1, 50);
     const zoom = opts.zoom || 1; cam.position.set(0, 1.55, 6.6 / zoom); cam.lookAt(0, 1.22, 0);
     let w = 0, h = 0, last = 0, running = false, drag = null;
@@ -393,7 +410,7 @@ const Lotto3D = {
     const cam = new THREE.PerspectiveCamera(28, 1, 0.1, 50); cam.position.set(0, 1.6, 6.6); cam.lookAt(0, 1.22, 0);
     const out = [];
     for (const it of list) {
-      const ch = new Lotto(); ch.userYaw = yaw == null ? 0.2 : yaw; scene.add(ch.group);
+      const ch = new Lotto(it.girl ? "girl" : null); ch.userYaw = yaw == null ? 0.2 : yaw; scene.add(ch.group);
       ch.setMood(it.mood || "normal"); ch.blink = false; ch.actIn = 99;
       if (it.look) { ch.lookT = ch.look = { x: it.look[0], y: it.look[1] }; }
       if (it.talk != null) { ch.setTalking(true); ch.mouth = it.talk; }

@@ -803,7 +803,7 @@
   });
 
   // ---------------------------------------------------------------- 캐릭터 '로또' (3D 공 박사)
-  const Pet = { snaps: null, machine: null, chat: null, big: null, roam: null, tried: false, timer: 0 };
+  const Pet = { snaps: null, machine: null, chat: null, big: null, roam: null, girl: null, tried: false, timer: 0 };
   // ---- 채팅 쪽 로또(머리의 작은 것 + 큰 화면의 오른쪽 큰 것)를 한꺼번에 다루는 도우미
   const chatPets = () => [Pet.chat, Pet.big, Roam.on && Pet.roam].filter(Boolean);
   const SAY = { normal: "궁금한 걸 물어보세요, 대장님!", happy: "조회했어요!", think: "자료를 확인하고 있어요…", wink: "추천 조합을 뽑았어요!", surprise: "앗, 이건 인기 모양이에요!", firm: "예측은 안 되지만, 사실은 알려 드려요.", worry: "앗, 문제가 생겼어요." };
@@ -845,7 +845,7 @@
     const next = () => {
       if (my !== Voice.q) return;
       if (i >= parts.length) { chatTalk(false); return; }
-      const u = new SpeechSynthesisUtterance(parts[i++]); u.voice = v; u.lang = v.lang; u.rate = 1.05; u.pitch = 1.1;
+      const u = new SpeechSynthesisUtterance(parts[i++]); u.voice = v; u.lang = v.lang; u.rate = 1.12; u.pitch = 1.55;
       u.onstart = () => { if (my === Voice.q) chatTalk(true); };
       u.onend = next; u.onerror = () => { if (my === Voice.q) chatTalk(false); };
       speechSynthesis.speak(u);
@@ -953,6 +953,7 @@
     Hop.raf = requestAnimationFrame(roamLoop);
     const dt = Hop.last ? Math.min(0.05, (ts - Hop.last) / 1000) : 0; Hop.last = ts;
     if (document.hidden || window.innerWidth < 600) return;
+    girlFollow(dt, ts);
     const el = $("#lotto-roam"), body = $("#roam-body");
     if (Hop.dur > 0) {
       Hop.t += dt; const k = Math.min(1, Hop.t / Hop.dur);
@@ -985,12 +986,49 @@
     $("#roam-q").value = ""; openAsk(false); send(q);
   });
   $("#roam-q").addEventListener("keydown", (e) => { if (e.key === "Escape") openAsk(false); });
+  // ---- 뽀또: 로또의 여자친구. 로또 곁을 따라다니고(멀면 뛰어서, 가까우면 아장아장) 가끔 말을 건다
+  const Girl = { on: true, x: 0, y: 0, moving: false, placed: false, say: 0, nextSay: 0 };
+  const GIRL_LINES = ["대장님, 오늘도 화이팅이에요!", "로또야, 같이 가요~", "번호는 재미로만 즐겨요, 대장님!", "저도 통계는 좀 알아요, 헤헤.", "로또는 제가 지켜요!", "대장님, 물 한 잔 드세요~"];
+  function girlSay(text, ms) {
+    const el = $("#roam2-say"); if (!el || !text) return;
+    $("#roam2-top").className = "roam-top" + (Girl.x < 140 ? " left" : Girl.x > innerWidth - 320 ? " right" : "") + (Girl.y < 130 ? " below" : "");
+    el.className = "roam-say"; void el.offsetHeight; el.classList.add("show"); el.textContent = text;
+    clearTimeout(Girl.say); Girl.say = setTimeout(() => el.classList.remove("show"), ms || 4200);
+  }
+  function girlFollow(dt, ts) {
+    const el = $("#lotto-roam2"); if (!Girl.on || !Pet.girl || el.hidden) return;
+    const side = Roam.x > innerWidth / 2 ? -1 : 1;
+    const tx = Math.max(8, Math.min(innerWidth - Roam.W - 8, Roam.x + side * 135)), ty = Math.max(56, Math.min(innerHeight - Roam.H - 8, Roam.y + 12));
+    const dx = tx - Girl.x, dy = ty - Girl.y, d = Math.hypot(dx, dy);
+    Girl.moving = d > (Girl.moving ? 12 : 44) && !Roam.ask && !Roam.talking;
+    const run = d > 250;
+    if (Girl.moving) {
+      const step = Math.min(d, (run ? 320 : 125) * dt); Girl.x += dx / d * step; Girl.y += dy / d * step;
+      Pet.girl.walk(true, dx >= 0 ? 1 : -1, run ? "hop" : "waddle");
+    } else Pet.girl.walk(false);
+    const bob = Girl.moving ? Math.abs(Math.sin(ts * (run ? 0.013 : 0.007))) * (run ? 12 : 4) : 0;
+    el.style.transform = `translate(${Girl.x}px,${Girl.y - bob}px)`;
+    if (ts > Girl.nextSay) { Girl.nextSay = ts + rnd(25000, 45000); if (!Roam.talking && !Roam.ask) girlSay(GIRL_LINES[Math.floor(Math.random() * GIRL_LINES.length)]); }
+  }
+  function setGirl(on) {
+    Girl.on = on; store.set("girl", on ? "1" : "0");
+    $("#girl-btn").classList.toggle("on", on); $("#girl-btn").textContent = "뽀또(여자친구): " + (on ? "함께" : "없음");
+    const el = $("#lotto-roam2"); el.hidden = !(on && Roam.on);
+    if (el.hidden) { Pet.girl && Pet.girl.walk(false); return; }
+    if (!Pet.girl && window.Lotto3D && window.Lotto3D.ok) {
+      Pet.girl = window.Lotto3D.mount($("#roam2-body"), { variant: "girl", onTap: () => { if (!Pet.girl) return; Math.random() < 0.5 ? Pet.girl.hop() : Pet.girl.wave(); girlSay(["안녕하세요, 대장님~!", "저 뽀또예요, 헤헤.", "로또랑 친하게 지내요!"][Math.floor(Math.random() * 3)]); } });
+    }
+    if (!Pet.girl) { el.hidden = true; return; }
+    if (!Girl.placed) { Girl.x = Math.max(8, Math.min(innerWidth - Roam.W - 8, Roam.x - 140)); Girl.y = Roam.y; Girl.placed = true; el.style.transform = `translate(${Girl.x}px,${Girl.y}px)`; }
+    Girl.nextSay = performance.now() + 3500; setTimeout(() => girlSay("대장님, 안녕하세요~! 저는 뽀또예요."), 400);
+  }
+  $("#girl-btn").addEventListener("click", () => setGirl(!Girl.on));
   function setRoam(on) {
     Roam.on = on; store.set("roam", on ? "1" : "0");
     document.body.classList.toggle("roam-on", on && !!Pet.big);
     $("#roam-btn").classList.toggle("on", on); $("#roam-btn").textContent = "로또 돌아다니기: " + (on ? "켬" : "끔");
     const el = $("#lotto-roam"); el.hidden = !on; cancelAnimationFrame(Hop.raf); Hop.raf = 0; Hop.last = 0; Hop.dur = 0;
-    if (!on) { Pet.roam && Pet.roam.walk(false); return; }
+    if (!on) { Pet.roam && Pet.roam.walk(false); setGirl(Girl.on); return; }
     if (!Pet.roam && window.Lotto3D && window.Lotto3D.ok) {
       Pet.roam = window.Lotto3D.mount($("#roam-body"), { onTap: () => { if (!Pet.roam) return; Math.random() < 0.5 ? Pet.roam.hop() : Pet.roam.wave(); popSound(Roam.x); openAsk(!$("#roam-ask").hidden ? false : true); } });
     }
@@ -998,9 +1036,11 @@
     roamPlace(Roam.x || innerWidth - Roam.W - 30, Roam.y || innerHeight - Roam.H - 20);
     Pet.roam.onStep(() => { if (Hop.mode === "waddle") popSound(Roam.x, true); });
     Hop.left = 0; Hop.rest = 1.2; Hop.raf = requestAnimationFrame(roamLoop);
+    setGirl(Girl.on);
   }
   window.addEventListener("resize", () => { if (Roam.on) roamPlace(Math.min(Roam.x, Math.max(0, innerWidth - Roam.W)), Math.min(Roam.y, Math.max(0, innerHeight - Roam.H))); });
   $("#snd-btn").addEventListener("click", () => { Roam.snd = !Roam.snd; store.set("snd", Roam.snd ? "1" : "0"); $("#snd-btn").classList.toggle("on", Roam.snd); $("#snd-btn").textContent = "통통 소리: " + (Roam.snd ? "켬" : "끔"); if (Roam.snd) popSound(Roam.x); });
+  Girl.on = store.get("girl", "1") === "1"; $("#girl-btn").classList.toggle("on", Girl.on); $("#girl-btn").textContent = "뽀또(여자친구): " + (Girl.on ? "함께" : "없음");
   Roam.snd = store.get("snd", "1") === "1"; $("#snd-btn").classList.toggle("on", Roam.snd); $("#snd-btn").textContent = "통통 소리: " + (Roam.snd ? "켬" : "끔");
   $("#roam-btn").addEventListener("click", () => setRoam(!Roam.on));
   // ---- 답변 읽어 주기 켜고 끄기
