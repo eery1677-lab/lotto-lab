@@ -224,6 +224,22 @@
       ${i != null ? `<button class="btn sm" data-copy="${c.nums.join(" ")}">복사</button>` : ""}
     </div>`;
   }
+  function renderGenResult(res) {
+    $("#gen-result").innerHTML = res.combos.map(comboHTML).join("") +
+      `<div class="note">당첨 확률은 모든 게임이 1/8,145,060 으로 같습니다. 기대 수령액은 최근 1년 평균 1등 총상금과 판매량 기준 추정치이고, 평균 조합은 세전 ${won(res.combos[0].expected_rank1_avg)} / 세후 ${won(res.combos[0].expected_rank1_net_avg)}입니다. 세후는 200만원 초과 시 3억원까지 22%, 초과분 33%(지방세 포함)를 뺀 금액입니다.</div>`;
+    $$("[data-copy]", $("#gen-result")).forEach((b) => b.addEventListener("click", () => copy(b.dataset.copy)));
+    $("#gen-copy").disabled = false;
+    $("#gen-save").disabled = false;
+  }
+  // 추첨기 연출 켜기/끄기(브라우저 기억)
+  const animBox = $("#gen-anim");
+  animBox.checked = store.get("gen_anim", "1") === "1";
+  function syncMachineCard() { $("#machine-card").hidden = !animBox.checked; }
+  animBox.addEventListener("change", () => { store.set("gen_anim", animBox.checked ? "1" : "0"); syncMachineCard(); });
+  syncMachineCard();
+  if (window.LottoMachine) window.LottoMachine.init($("#machine"));
+  $("#machine-skip").addEventListener("click", () => window.LottoMachine.skip());
+
   $("#gen-btn").addEventListener("click", async () => {
     const btn = $("#gen-btn");
     btn.disabled = true;
@@ -232,11 +248,27 @@
         count: +segValue("gen-count"), mode: segValue("gen-mode"), strength: +segValue("gen-strength"),
       });
       lastCombos = res.combos;
-      $("#gen-result").innerHTML = res.combos.map(comboHTML).join("") +
-        `<div class="note">당첨 확률은 모든 게임이 1/8,145,060 으로 같습니다. 기대 수령액은 최근 1년 평균 1등 총상금과 판매량 기준 추정치이고, 평균 조합은 세전 ${won(res.combos[0].expected_rank1_avg)} / 세후 ${won(res.combos[0].expected_rank1_net_avg)}입니다. 세후는 200만원 초과 시 3억원까지 22%, 초과분 33%(지방세 포함)를 뺀 금액입니다.</div>`;
-      $$("[data-copy]", $("#gen-result")).forEach((b) => b.addEventListener("click", () => copy(b.dataset.copy)));
-      $("#gen-copy").disabled = false;
-      $("#gen-save").disabled = false;
+      const M = window.LottoMachine;
+      const status = $("#machine-status"), skip = $("#machine-skip");
+      const done = () => {
+        skip.hidden = true;
+        status.textContent = res.combos.length > 1 ? `A 게임을 뽑았습니다. 나머지 ${res.combos.length - 1}게임은 같은 방식으로 이미 정해져 아래에 있습니다.` : "A 게임을 뽑았습니다.";
+        renderGenResult(res);
+        btn.disabled = false;
+        $("#gen-result").scrollIntoView({ behavior: "smooth", block: "nearest" });
+      };
+      if (animBox.checked && M && M.play(res.combos[0].nums, {
+        onBall: (i, total, n) => { status.textContent = `A 게임 추첨 중… ${i} / ${total}번째 공: ${n}번`; },
+        onDone: done,
+      })) {
+        $("#gen-result").innerHTML = `<div class="muted">추첨기가 A 게임의 공을 꺼내는 중입니다…</div>`;
+        $("#gen-copy").disabled = true; $("#gen-save").disabled = true;
+        status.textContent = "공을 섞는 중…";
+        skip.hidden = false;
+        $("#machine-card").scrollIntoView({ behavior: "smooth", block: "nearest" });
+        return;   // 끝나면 done() 이 결과를 보여 주고 버튼을 다시 켠다
+      }
+      renderGenResult(res);
     } catch (e) { toast(e.message); }
     btn.disabled = false;
   });
