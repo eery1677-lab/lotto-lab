@@ -63,6 +63,8 @@
     $$(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === v));
     $$(".view").forEach((s) => s.classList.toggle("active", s.id === "view-" + v));
     document.body.classList.toggle("ai-mode", v === "ai");
+    { const bar = $(".side"), cur = $(".nav-btn.active");          // 휴대폰: 현재 탭이 가로 막대 가운데에 보이게
+      if (bar && cur && bar.scrollWidth > bar.clientWidth) bar.scrollTo({ left: cur.offsetLeft - (bar.clientWidth - cur.offsetWidth) / 2, behavior: "smooth" }); }
     store.set("view", v);
     if (v === "ai") initChat();
     window.scrollTo(0, 0);
