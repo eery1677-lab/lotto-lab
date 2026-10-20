@@ -21,6 +21,7 @@ import lotto_data
 import answer_check
 import briefing
 import chat_tools
+import duo
 import tickets
 from analysis import Analyzer
 
@@ -481,6 +482,14 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 _ensure_tts()
                 return self._json({"error": "음성 서비스를 켜는 중입니다"}, 503)
+        if path == "/api/duo":
+            def ask(system, user):
+                base = _lms_base(body.get("base"))
+                payload = {"model": body.get("model") or "", "temperature": 0.7, "max_tokens": 900,
+                           "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
+                resp, _ = _lms_post(base, payload, stream=False)
+                return json.loads(resp.read().decode("utf-8"))["choices"][0]["message"]["content"] or ""
+            return self._json(duo.build(a, ask))
         if path == "/api/chat":
             return self._chat(a, body)
         return self._json({"error": "없음"}, 404)

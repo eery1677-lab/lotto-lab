@@ -443,3 +443,11 @@ body.roam-on .lotto-pet, body.roam-on .lotto-chat, body.roam-on .lotto-big { dis
 .roam-ask[hidden] { display: none; }
 .roam-ask input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text); font-size: 14px; outline: none; }
 .roam-ask button { border: 0; background: var(--accent); color: #fff; border-radius: 10px; width: 34px; cursor: pointer; font-size: 15px; }
+
+/* 로또 ↔ 뽀또 대화 */
+.duo { display: flex; flex-direction: column; gap: 8px; }
+.duo-line { display: flex; gap: 8px; align-items: flex-start; animation: bubble-pop .35s cubic-bezier(.3, 1.6, .5, 1); }
+.duo-line[hidden] { display: none; }
+.duo-line b { flex: none; font-size: 12px; padding: 2px 9px; border-radius: 10px; background: #fff0b8; color: #6b4e00; margin-top: 1px; }
+.duo-line.ppoddo b { background: #ffdfea; color: #a3174f; }
+.duo-line span { line-height: 1.55; }

@@ -1042,11 +1042,12 @@
   // ---- 뽀또: 로또의 여자친구. 로또 곁을 따라다니고(멀면 뛰어서, 가까우면 아장아장) 가끔 말을 건다
   const Girl = { on: true, x: 0, y: 0, sp: 0, dir: 1, side: 0, run: false, moving: false, placed: false, say: 0, nextSay: 0, nextMood: 0, moodT: 0 };
   const GIRL_LINES = ["대장님, 오늘도 화이팅이에요!", "로또야, 같이 가요~", "번호는 재미로만 즐겨요, 대장님!", "저도 통계는 좀 알아요, 헤헤.", "로또는 제가 지켜요!", "대장님, 물 한 잔 드세요~"];
-  function girlSay(text, ms) {
+  function girlSay(text, ms, quiet) {
     const el = $("#roam2-say"); if (!el || !text) return;
     $("#roam2-top").className = "roam-top" + (Girl.x < 140 ? " left" : Girl.x > innerWidth - 320 ? " right" : "") + (Girl.y < 130 ? " below" : "");
     el.className = "roam-say"; void el.offsetHeight; el.classList.add("show"); el.textContent = text;
     clearTimeout(Girl.say); Girl.say = setTimeout(() => el.classList.remove("show"), ms || 4200);
+    if (quiet) return;
     speakLine(text, "ppoddo", Pet.girl);
     girlMood(Math.random() < 0.5 ? "happy" : "wink", Math.min(4200, (ms || 4200)));
     if (Pet.girl && !(Voice.on && Voice.mode === 3)) { Pet.girl.talk(true); setTimeout(() => Pet.girl && Pet.girl.talk(false), Math.min(3200, 600 + text.length * 120)); }
@@ -1149,10 +1150,61 @@
     return el;
   }
 
+  // ---------------------------------------------------------------- 로또 ↔ 뽀또 대화 (사실은 코드, 말투는 AI — /api/duo)
+  function duoVoice(text, who, my, pet) {
+    return new Promise((done) => {
+      const fin = () => { if (pet) pet.talk(false); done(); };
+      const wait = Math.max(2400, text.length * 95);
+      const plain = text.replace(/\p{Extended_Pictographic}/gu, " ").replace(/\s+/g, " ").trim();
+      if (Voice.on && Voice.mode === 3) {
+        ttsFetch(plain, who).then((blob) => { if (my !== Voice.q) return done(); return playBlob(blob, my, () => pet && pet.talk(true), fin); }).catch(() => { if (pet) pet.talk(true); setTimeout(fin, wait); });
+      } else if (Voice.on && "speechSynthesis" in window && pickVoice()) {
+        const v = pickVoice(), u = new SpeechSynthesisUtterance(plain); u.voice = v; u.lang = v.lang; u.rate = 1.1; u.pitch = who === "lotto" ? 1.3 : 1.8;
+        u.onstart = () => pet && pet.talk(true); u.onend = fin; u.onerror = fin; speechSynthesis.speak(u);
+      } else { if (pet) pet.talk(true); setTimeout(fin, wait); }
+    });
+  }
+  async function runDuo(text) {
+    $("#chat-text").value = ""; $("#chat-text").style.height = "auto";
+    addMsg("user", text);
+    const el = addMsg("bot", "", null, "think"), body = $(".body", el);
+    body.innerHTML = `<span class="typing">로또와 뽀또가 상의 중…</span>`;
+    chat.busy = true; $("#chat-send").textContent = "중지"; chatMood("think");
+    let j;
+    try {
+      const r = await fetch("/api/duo", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ base: lmsBase(), model: $("#lms-model").value }) });
+      j = await r.json(); if (!r.ok || !j.lines) throw new Error(j.error || `오류 ${r.status}`);
+    } catch (e) {
+      chat.busy = false; $("#chat-send").textContent = "보내기"; chatMood("worry");
+      body.innerHTML = `⚠️ 대화를 만들지 못했어요: ${esc(e.message)}`; return;
+    }
+    body.innerHTML = `<div class="duo">${j.lines.map((l) => `<div class="duo-line ${l.who}" hidden><b>${l.who === "lotto" ? "로또" : "뽀또"}</b><span>${esc(l.text)}</span></div>`).join("")}</div>`;
+    chat.busy = false; $("#chat-send").textContent = "보내기";
+    const rows = $$(".duo-line", body), my = ++Voice.q;
+    const showGirl = Roam.on && Girl.on && Pet.girl && !$("#lotto-roam2").hidden, showLotto = Roam.on && Pet.roam;
+    Roam.talking = true;                                   // 대화하는 동안 둘 다 멈춰 선다
+    for (let i = 0; i < j.lines.length; i++) {
+      if (my !== Voice.q) break;
+      const l = j.lines[i], isL = l.who === "lotto", pet = isL ? (showLotto ? Pet.roam : null) : (showGirl ? Pet.girl : null);
+      rows[i].hidden = false; $("#chat-log").scrollTop = 1e9;
+      const ms = Math.max(3200, l.text.length * 110);
+      if (isL) { if (showLotto) roamSay(l.text, ms); } else if (showGirl) { girlSay(l.text, ms, true); girlMood(/[?？]|…/.test(l.text) ? "think" : "happy", 1800); }
+      await duoVoice(l.text, l.who, my, pet);
+    }
+    Roam.talking = false; Pet.roam && Pet.roam.talk(false); Pet.girl && Pet.girl.talk(false);
+    if (my !== Voice.q) return;
+    appendCards(el, [j.card]); $("#chat-log").scrollTop = 1e9;
+    chatMood("wink");
+    const transcript = j.lines.map((l) => `${l.who === "lotto" ? "로또" : "뽀또"}: ${l.text}`).join("\n");
+    chat.history.push({ role: "user", content: text }, { role: "assistant", content: transcript, cards: [j.card], mood: "wink" });
+    store.set("chat", JSON.stringify(chat.history.slice(-20)));
+  }
+
   async function send(text) {
     text = (text || "").trim();
     if (!text || chat.busy) return;
     $(".chips-welcome")?.remove(); closePop(); stopVoice();
+    if (/상의|둘이|뽀또/.test(text) && text.length < 90) return runDuo(text);
     const model = $("#lms-model").value;
     if (!model) { toast("LM Studio 모델을 먼저 연결하세요"); return; }
     $("#chat-text").value = ""; $("#chat-text").style.height = "auto";
