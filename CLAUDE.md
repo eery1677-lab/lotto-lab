@@ -177,3 +177,9 @@
 
 - **뽀또(로또의 여자친구)**: 분홍 몸·큰 리본·속눈썹(`new Lotto("girl")`, `mount(el,{variant:"girl"})`, `poses` 에 `girl:true`). 돌아다니는 로또 곁을 따라다닌다(`girlFollow` — 멀면 뛰고 가까우면 아장아장, 가끔 말 걸기). 사이드바 버튼 "뽀또(여자친구)"로 켜고 끔(기본 함께). 이름·말투는 `app.js` `GIRL_LINES`·`title` 에서 바꾼다.
 - 목소리 실험 폴더 `voice/`(git 제외: `.venv`·`out`·로그) — Qwen3-TTS VoiceDesign(글로 설명한 귀여운 목소리) 를 이 PC(CPU)에서 돌려 보는 시험.
+
+## 로컬 AI 목소리 — Qwen3-TTS (2026-10-20)
+
+- `voice/tts_server.py`(127.0.0.1:3650, 윈도우 `voice/.venv`) 가 Qwen3-TTS **0.6B** 로 로또·뽀또 목소리를 만든다. `voices.json` 에 `sample`(휴대폰 녹음 10초 안팎, `sample_text` = 말한 내용)이 있으면 **Base 복제**, 없으면 **CustomVoice 정해진 목소리 + style 말투 지시**. 1.7B(VoiceDesign)는 이 PC VRAM(12GB 중 LM Studio 가 ~10GB 사용)에 안 맞고 필요 없어 쓰지 않는다. 글·소리는 이 컴퓨터 밖으로 안 나간다.
+- `server.py`: `GET /api/tts/status`(서비스 상태, 꺼져 있으면 자동으로 켬 — `_ensure_tts`), `POST /api/tts {text, voice}` → wav 로 중계. **`server.py` 를 고쳤으니 서버 재시작 필요.** 화면: 사이드바 "답변 읽어 주기"가 끔 → 로컬 AI 목소리 → 기기 목소리 → 자연스러운(인터넷) 순환. 로컬은 문장마다 받아 재생하며 다음 문장을 미리 만들고, 실패하면 기기 목소리로 이어 읽는다. 뽀또의 말풍선은 `ppoddo` 목소리로 읽는다.
+- 윈도우 torch 는 CPU 판이라 느릴 수 있다(NVIDIA 쓰려면 CUDA torch 필요, LM Studio 가 VRAM 을 쓰고 있어 0.6B 정도만 가능). 맥북은 `voice/` 를 가져가 MPS 로 자동 선택(모델은 맥에 이미 받아 둠). 자세한 사용법은 `voice/README.md`.

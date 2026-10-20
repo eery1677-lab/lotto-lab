@@ -823,7 +823,10 @@
     const el = $("#lotto-say"); if (!el || !text) return;
     el.textContent = text; el.style.animation = "none"; void el.offsetHeight; el.style.animation = "";
   }
-  function chatMood(m) { chatPets().forEach((p) => p.setMood(m)); lottoSay(SAY[m] || SAY.normal); }
+  function chatMood(m) {
+    chatPets().forEach((p) => p.setMood(m)); lottoSay(SAY[m] || SAY.normal);
+    if (Girl.on && Pet.girl && !Girl.hidden) setTimeout(() => girlMood(m === "worry" ? "worry" : m === "think" ? "think" : "happy", m === "think" ? 0 : 2600), 400);
+  }
   function chatTalk(on) { Roam.talking = !!on; chatPets().forEach((p) => p.talk(on)); }
   // ---- 답변을 소리 내어 읽기: 이 기기에 들어 있는 한국어 목소리만 쓴다(인터넷 목소리는 글이 밖으로 나가서 제외)
   // 모드 1 = 기기 목소리(글이 밖으로 안 나감, 기계음에 가까움), 모드 2 = 자연스러운 인터넷 목소리(Edge 의 Natural 등 — 읽을 글이 마이크로소프트 서버로 간다)
@@ -834,14 +837,64 @@
     if ((mode || Voice.mode) === 2) return ko.find((v) => !v.localService && /natural/i.test(v.name)) || ko.find((v) => !v.localService) || null;
     return ko.find((v) => v.localService) || null;
   }
-  function stopVoice() { Voice.q++; try { speechSynthesis.cancel(); } catch (e) { /* 지원 안 함 */ } }
+  function stopVoice() { Voice.q++; try { speechSynthesis.cancel(); } catch (e) { /* 지원 안 함 */ } if (Voice.audio) { try { Voice.audio.pause(); } catch (e) { /* 이미 끝남 */ } Voice.audio = null; } }
+  // ---- 로컬 AI 목소리(voice/tts_server.py, Qwen3-TTS): 문장마다 소리를 받아 오고, 재생하는 동안 다음 문장을 미리 만든다
+  async function ttsFetch(text, voiceId) {
+    for (let k = 0; k < 25; k++) {                  // 서비스가 켜지는 동안(처음엔 모델을 올려 1분쯤) 기다린다
+      const r = await fetch("/api/tts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, voice: voiceId }) });
+      if (r.ok) return r.blob();
+      if (r.status !== 503) throw new Error("tts " + r.status);
+      await new Promise((ok) => setTimeout(ok, 3000));
+    }
+    throw new Error("tts timeout");
+  }
+  function playBlob(blob, my, onPlay, onEnd) {
+    return new Promise((done) => {
+      const a = new Audio(URL.createObjectURL(blob)); Voice.audio = a;
+      a.onplay = () => { if (my === Voice.q && onPlay) onPlay(); };
+      const end = () => { URL.revokeObjectURL(a.src); if (onEnd) onEnd(); done(); };
+      a.onended = end; a.onerror = end; a.play().catch(end);
+    });
+  }
+  async function speakRemote(parts, my, voiceId) {
+    let nextP = ttsFetch(parts[0], voiceId);
+    for (let i = 0; i < parts.length; i++) {
+      const blob = await nextP; if (my !== Voice.q) return;
+      if (i + 1 < parts.length) nextP = ttsFetch(parts[i + 1], voiceId);
+      nextP.catch(() => {});                          // 아직 안 쓴 실패는 다음 차례에 처리
+      await playBlob(blob, my, () => chatTalk(true), null);
+      if (my !== Voice.q) return;
+    }
+    chatTalk(false);
+  }
+  function speakLocalFallback(parts, my, v) {         // 로컬 서비스가 안 될 때: 기기 목소리로 이어 읽기
+    let i = 0;
+    const next = () => {
+      if (my !== Voice.q) return;
+      if (i >= parts.length) { chatTalk(false); return; }
+      const u = new SpeechSynthesisUtterance(parts[i++]); u.voice = v; u.lang = v.lang; u.rate = 1.12; u.pitch = 1.55;
+      u.onstart = () => { if (my === Voice.q) chatTalk(true); }; u.onend = next; u.onerror = () => chatTalk(false);
+      speechSynthesis.speak(u);
+    };
+    next();
+  }
+  // 뽀또 같은 다른 캐릭터의 한마디(답변 읽기 중이 아닐 때만)
+  function speakLine(text, voiceId, pet) {
+    if (!Voice.on || Voice.mode !== 3 || Voice.audio) return;
+    ttsFetch(text, voiceId).then((blob) => { if (Voice.audio) return; const my = Voice.q; return playBlob(blob, my, () => pet && pet.talk(true), () => { pet && pet.talk(false); Voice.audio = null; }); }).catch(() => {});
+  }
   function speakAnswer(text) {
     if (!Voice.on) return;
-    const v = Voice.voice || (Voice.voice = pickVoice()); if (!v) return;
+    const v = Voice.mode === 3 ? pickVoice(1) : (Voice.voice || (Voice.voice = pickVoice()));
+    if (!v && Voice.mode !== 3) return;
     const clean = text.replace(/```[\s\S]*?```/g, " ").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[*#>`|_~]/g, " ").replace(/\p{Extended_Pictographic}/gu, " ").replace(/\s+/g, " ").trim();
     if (!clean) return;
     const parts = (clean.slice(0, 700).match(/[^.!?。\n]+[.!?。]?/g) || [clean]).map((s) => s.trim()).filter(Boolean);
     const my = ++Voice.q; let i = 0;
+    if (Voice.mode === 3) {
+      speakRemote(parts, my, "lotto").catch(() => { if (my !== Voice.q || !v) return; Voice.fail = (Voice.fail || 0) + 1; speakLocalFallback(parts, my, v); });
+      return;
+    }
     const next = () => {
       if (my !== Voice.q) return;
       if (i >= parts.length) { chatTalk(false); return; }
@@ -987,28 +1040,47 @@
   });
   $("#roam-q").addEventListener("keydown", (e) => { if (e.key === "Escape") openAsk(false); });
   // ---- 뽀또: 로또의 여자친구. 로또 곁을 따라다니고(멀면 뛰어서, 가까우면 아장아장) 가끔 말을 건다
-  const Girl = { on: true, x: 0, y: 0, moving: false, placed: false, say: 0, nextSay: 0 };
+  const Girl = { on: true, x: 0, y: 0, sp: 0, dir: 1, side: 0, run: false, moving: false, placed: false, say: 0, nextSay: 0, nextMood: 0, moodT: 0 };
   const GIRL_LINES = ["대장님, 오늘도 화이팅이에요!", "로또야, 같이 가요~", "번호는 재미로만 즐겨요, 대장님!", "저도 통계는 좀 알아요, 헤헤.", "로또는 제가 지켜요!", "대장님, 물 한 잔 드세요~"];
   function girlSay(text, ms) {
     const el = $("#roam2-say"); if (!el || !text) return;
     $("#roam2-top").className = "roam-top" + (Girl.x < 140 ? " left" : Girl.x > innerWidth - 320 ? " right" : "") + (Girl.y < 130 ? " below" : "");
     el.className = "roam-say"; void el.offsetHeight; el.classList.add("show"); el.textContent = text;
     clearTimeout(Girl.say); Girl.say = setTimeout(() => el.classList.remove("show"), ms || 4200);
+    speakLine(text, "ppoddo", Pet.girl);
+    girlMood(Math.random() < 0.5 ? "happy" : "wink", Math.min(4200, (ms || 4200)));
+    if (Pet.girl && !(Voice.on && Voice.mode === 3)) { Pet.girl.talk(true); setTimeout(() => Pet.girl && Pet.girl.talk(false), Math.min(3200, 600 + text.length * 120)); }
   }
+  // 로또 곁을 부드럽게 따라간다: 속도를 서서히 올리고 줄이고(급정지·순간이동 없음), 한쪽 자리를 유지하고(화면 가장자리에서만 반대편으로),
+  // 멀 때만 뛰고(여유 두고 되돌아옴) 가까우면 아장아장, 도착하면 서서 표정을 짓는다
   function girlFollow(dt, ts) {
     const el = $("#lotto-roam2"); if (!Girl.on || !Pet.girl || el.hidden) return;
-    const side = Roam.x > innerWidth / 2 ? -1 : 1;
-    const tx = Math.max(8, Math.min(innerWidth - Roam.W - 8, Roam.x + side * 135)), ty = Math.max(56, Math.min(innerHeight - Roam.H - 8, Roam.y + 12));
+    const maxX = Math.max(9, innerWidth - Roam.W - 8), maxY = Math.max(57, innerHeight - Roam.H - 8);
+    if (!Girl.side) Girl.side = Girl.x < Roam.x ? -1 : 1;
+    const want = (sd) => Roam.x + sd * 135;
+    if (want(Girl.side) < 8 || want(Girl.side) > maxX) Girl.side = -Girl.side;        // 자리가 없을 때만 반대편
+    const tx = Math.max(8, Math.min(maxX, want(Girl.side))), ty = Math.max(56, Math.min(maxY, Roam.y + 12));
     const dx = tx - Girl.x, dy = ty - Girl.y, d = Math.hypot(dx, dy);
-    Girl.moving = d > (Girl.moving ? 12 : 44) && !Roam.ask && !Roam.talking;
-    const run = d > 250;
-    if (Girl.moving) {
-      const step = Math.min(d, (run ? 320 : 125) * dt); Girl.x += dx / d * step; Girl.y += dy / d * step;
-      Pet.girl.walk(true, dx >= 0 ? 1 : -1, run ? "hop" : "waddle");
-    } else Pet.girl.walk(false);
-    const bob = Girl.moving ? Math.abs(Math.sin(ts * (run ? 0.013 : 0.007))) * (run ? 12 : 4) : 0;
-    el.style.transform = `translate(${Girl.x}px,${Girl.y - bob}px)`;
+    const still = Roam.ask || Roam.talking;
+    if (!Girl.run && d > 300) Girl.run = true; else if (Girl.run && d < 150) Girl.run = false;
+    const goal = still || d < (Girl.moving ? 10 : 42) ? 0 : (Girl.run ? Math.min(340, 80 + d * 1.1) : Math.min(120, 30 + d * 0.9));
+    const k = 1 - Math.exp(-(goal > Girl.sp ? 5 : 8) * dt);                           // 가속은 천천히, 감속은 조금 빨리
+    Girl.sp += (goal - Girl.sp) * k;
+    Girl.moving = Girl.sp > 6;
+    if (Girl.moving && d > 0.5) {
+      const step = Math.min(d, Girl.sp * dt); Girl.x += dx / d * step; Girl.y += dy / d * step;
+      if (Math.abs(dx) > 14) Girl.dir = dx > 0 ? 1 : -1;
+      Pet.girl.walk(true, Girl.dir || 1, Girl.run ? "hop" : "waddle");
+    } else { Pet.girl.walk(false); Girl.sp = 0; }
+    const ph = ts * (Girl.run ? 0.013 : 0.007), bob = Girl.moving ? Math.abs(Math.sin(ph)) * (Girl.run ? Math.min(12, Girl.sp / 25) : 3) : 0;
+    el.style.transform = `translate(${Girl.x.toFixed(1)}px,${(Girl.y - bob).toFixed(1)}px)`;
+    // 표정: 서 있을 때 가끔 웃거나 윙크, 말풍선을 띄울 땐 기쁜 표정
+    if (!Girl.moving && ts > Girl.nextMood) { Girl.nextMood = ts + rnd(7000, 14000); girlMood(Math.random() < 0.5 ? "happy" : "wink", 1900); }
     if (ts > Girl.nextSay) { Girl.nextSay = ts + rnd(25000, 45000); if (!Roam.talking && !Roam.ask) girlSay(GIRL_LINES[Math.floor(Math.random() * GIRL_LINES.length)]); }
+  }
+  function girlMood(m, back) {
+    if (!Pet.girl) return; Pet.girl.setMood(m); clearTimeout(Girl.moodT);
+    if (back) Girl.moodT = setTimeout(() => { if (Pet.girl && Pet.girl.mood === m) Pet.girl.setMood("normal"); }, back);
   }
   function setGirl(on) {
     Girl.on = on; store.set("girl", on ? "1" : "0");
@@ -1048,20 +1120,21 @@
     Voice.on = mode > 0; Voice.mode = mode || 1; Voice.voice = null; store.set("tts", String(mode));
     if (!mode) { stopVoice(); chatTalk(false); }
     const b = $("#tts-btn"); b.classList.toggle("on", mode > 0);
-    b.textContent = "답변 읽어 주기: " + (mode === 2 ? "자연스러운(인터넷)" : mode === 1 ? "기기 목소리" : "끔");
+    b.textContent = "답변 읽어 주기: " + (mode === 3 ? "로컬 AI 목소리" : mode === 2 ? "자연스러운(인터넷)" : mode === 1 ? "기기 목소리" : "끔");
   }
-  $("#tts-btn").addEventListener("click", () => {
-    if (!("speechSynthesis" in window)) { alert("이 브라우저는 소리 내어 읽기를 지원하지 않습니다."); return; }
+  $("#tts-btn").addEventListener("click", async () => {
     const cur = Voice.on ? Voice.mode : 0, hello = "안녕하세요, 대장님. 이제 답변을 읽어 드릴게요.";
-    if (cur === 0 && pickVoice(1)) { setTts(1); speakAnswer(hello); return; }
-    if (cur <= 1 && pickVoice(2)) {
-      if (!confirm("자연스러운 목소리는 인터넷(마이크로소프트 서버)으로 읽을 글을 보냅니다. 로또 상담 답변만 해당하고 고객 정보는 없습니다.\\n그래도 쓸까요?")) return setTts(0);
-      setTts(2); speakAnswer(hello); return;
-    }
-    setTts(0);
+    const st = await fetch("/api/tts/status").then((r) => r.json()).catch(() => ({ installed: false }));
+    const avail = { 3: !!st.installed, 1: !!pickVoice(1), 2: !!pickVoice(2) };
+    const order = [3, 1, 2];
+    const nxt = order.slice(cur ? order.indexOf(cur) + 1 : 0).find((m) => avail[m]);
+    if (!nxt) { if (cur === 0 && !("speechSynthesis" in window)) alert("이 브라우저는 소리 내어 읽기를 지원하지 않습니다."); return setTts(0); }
+    if (nxt === 2 && !confirm("자연스러운 목소리는 인터넷(마이크로소프트 서버)으로 읽을 글을 보냅니다. 로또 상담 답변만 해당하고 고객 정보는 없습니다.\n그래도 쓸까요?")) return setTts(0);
+    setTts(nxt);
+    speakAnswer(hello);
   });
   if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = () => { Voice.voice = null; };
-  { const m = Number(store.get("tts", "0")); setTimeout(() => setTts(m && pickVoice(m) ? m : 0), 600); }
+  { const m = Number(store.get("tts", "0")); setTimeout(() => setTts(m === 3 || (m && pickVoice(m)) ? m : 0), 600); }
   window.addEventListener("lotto3d-ready", initPet);
   if (window.Lotto3D) initPet();
 

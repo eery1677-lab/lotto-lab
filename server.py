@@ -10,6 +10,7 @@ import re
 import sys
 import threading
 import time
+import subprocess
 import urllib.error
 import urllib.request
 import webbrowser
@@ -296,6 +297,44 @@ def _lms_post(base, body, stream):
 
 
 # ---------------------------------------------------------------- HTTP
+# ---------------------------------------------------------------- 로컬 음성 서비스(voice/tts_server.py) 연결
+TTS_PORT = int(os.environ.get("LOTTO_TTS_PORT", "3650"))
+_tts = {"proc": None, "started": 0.0}
+
+
+def _tts_python():
+    d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "voice", ".venv")
+    for rel in (("Scripts", "pythonw.exe"), ("Scripts", "python.exe"), ("bin", "python")):
+        p = os.path.join(d, *rel)
+        if os.path.exists(p):
+            return p
+    return None
+
+
+def _tts_get(path, timeout=3):
+    with urllib.request.urlopen(f"http://127.0.0.1:{TTS_PORT}{path}", timeout=timeout) as r:
+        return r.read()
+
+
+def _ensure_tts():
+    """음성 서비스가 꺼져 있으면 한 번 켠다(30초 안에 다시 켜지 않음). 켜져 있으면 True."""
+    try:
+        _tts_get("/health", 1.5)
+        return True
+    except Exception:
+        pass
+    py = _tts_python()
+    if not py or time.time() - _tts["started"] < 30:
+        return False
+    _tts["started"] = time.time()
+    root = os.path.dirname(os.path.abspath(__file__))
+    log = open(os.path.join(root, "voice", "tts.log"), "ab")
+    flags = 0x08000000 if os.name == "nt" else 0     # 콘솔 창 없이
+    _tts["proc"] = subprocess.Popen([py, os.path.join(root, "voice", "tts_server.py")], cwd=os.path.join(root, "voice"),
+                                    stdout=log, stderr=log, creationflags=flags)
+    return False
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "LottoLab/1.0"
 
@@ -327,6 +366,14 @@ class Handler(BaseHTTPRequestHandler):
                            "error": _state["last_error"],
                            "next_draw": _next_draw_time(a.draws[-1]["date"]).strftime("%Y-%m-%d")}
             return self._json(s)
+        if path == "/api/tts/status":
+            installed = _tts_python() is not None
+            try:
+                return self._json(dict(json.loads(_tts_get("/health")), installed=installed, running=True))
+            except Exception:
+                if installed:
+                    _ensure_tts()
+                return self._json({"installed": installed, "running": False})
         if path == "/api/briefing":
             a = analyzer()
             b = dict(briefing.get(a))
@@ -417,6 +464,23 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, TypeError) as e:
                 return self._json({"error": str(e)}, 400)
             return self._json(tickets.report(a.draws, a.draws[-1]["no"] + 1))
+        if path == "/api/tts":
+            try:
+                req = urllib.request.Request(f"http://127.0.0.1:{TTS_PORT}/speak", data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+                                             headers={"Content-Type": "application/json"})
+                with urllib.request.urlopen(req, timeout=240) as r:
+                    data = r.read()
+                self.send_response(200)
+                self.send_header("Content-Type", "audio/wav")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                return self.wfile.write(data)
+            except urllib.error.HTTPError as e:
+                return self._json({"error": "음성 합성 실패"}, e.code)
+            except Exception:
+                _ensure_tts()
+                return self._json({"error": "음성 서비스를 켜는 중입니다"}, 503)
         if path == "/api/chat":
             return self._chat(a, body)
         return self._json({"error": "없음"}, 404)
