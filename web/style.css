@@ -451,3 +451,17 @@ body.roam-on .lotto-pet, body.roam-on .lotto-chat, body.roam-on .lotto-big { dis
 .duo-line b { flex: none; font-size: 12px; padding: 2px 9px; border-radius: 10px; background: #fff0b8; color: #6b4e00; margin-top: 1px; }
 .duo-line.ppoddo b { background: #ffdfea; color: #a3174f; }
 .duo-line span { line-height: 1.55; }
+
+/* 휴대폰으로 보기(QR) */
+.phone-modal { position: fixed; inset: 0; z-index: 200; background: rgba(15, 23, 42, .55); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.phone-modal[hidden] { display: none; }
+.phone-card { position: relative; background: var(--panel); color: var(--text); border-radius: 16px; padding: 22px; max-width: 560px; width: 100%; max-height: 92vh; overflow: auto; box-shadow: 0 20px 60px rgba(0, 0, 0, .35); }
+.phone-card h2 { margin: 0 0 6px; }
+.phone-close { position: absolute; right: 14px; top: 14px; }
+.phone-item { display: flex; gap: 16px; align-items: center; border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-top: 12px; flex-wrap: wrap; }
+.phone-item .qr { width: 160px; height: 160px; flex: none; background: #fff; border-radius: 8px; padding: 6px; }
+.phone-item .qr svg, .phone-item .qr img, .phone-item .qr canvas { width: 100%; height: 100%; }
+.phone-item code { display: block; font-size: 15px; font-weight: 700; word-break: break-all; margin: 4px 0; }
+.phone-note { margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: var(--panel-2); font-size: 13px; line-height: 1.6; }
+.phone-note.warn { border: 1px solid #f59e0b; }
+.phone-note ol { margin: 6px 0 0 18px; padding: 0; }

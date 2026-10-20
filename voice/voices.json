@@ -3,14 +3,14 @@
     "label": "로또",
     "sample": "lotto.m4a",
     "sample_text": "",
-    "speaker": "Sohee",
+    "speaker": "sohee",
     "style": "귀엽고 밝은 목소리로, 톤을 높게 통통 튀듯 명랑하게 말해 주세요."
   },
   "ppoddo": {
     "label": "뽀또",
     "sample": "ppoddo.m4a",
     "sample_text": "",
-    "speaker": "Sohee",
+    "speaker": "sohee",
     "style": "상냥하고 사랑스러운 여자아이 목소리로, 살짝 높은 톤으로 귀엽게 말해 주세요."
   }
 }

@@ -10,6 +10,7 @@ import re
 import sys
 import threading
 import time
+import socket
 import subprocess
 import urllib.error
 import urllib.request
@@ -30,7 +31,7 @@ STATIC_DIR = os.path.join(BASE_DIR, "web")
 PORT = int(os.environ.get("LOTTO_PORT", "3600"))
 STATIC_TYPES = {".html": "text/html; charset=utf-8", ".js": "application/javascript; charset=utf-8",
                 ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png",
-                ".ico": "image/x-icon", ".json": "application/json"}
+                ".ico": "image/x-icon", ".json": "application/json", ".webmanifest": "application/manifest+json"}
 DEFAULT_LMS = "http://127.0.0.1:1234"
 
 _lock = threading.Lock()
@@ -336,6 +337,36 @@ def _ensure_tts():
     return False
 
 
+LAN = {"on": False}
+
+
+def _local_ips():
+    """이 PC 의 접속 주소 후보: Tailscale(100.64~127.x) 과 같은 와이파이."""
+    ips = []
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(0.5)
+        s.connect(("8.8.8.8", 80))
+        ips.append(s.getsockname()[0])
+        s.close()
+    except Exception:
+        pass
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ips.append(info[4][0])
+    except Exception:
+        pass
+    out, seen = [], set()
+    for ip in ips:
+        if not ip or ip in seen or ip.startswith("127.") or ip.startswith("169.254."):
+            continue
+        seen.add(ip)
+        a, b = (int(x) for x in ip.split(".")[:2])
+        out.append({"ip": ip, "kind": "tailscale" if a == 100 and 64 <= b <= 127 else "wifi"})
+    out.sort(key=lambda x: x["kind"] != "tailscale")
+    return out
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "LottoLab/1.0"
 
@@ -367,6 +398,8 @@ class Handler(BaseHTTPRequestHandler):
                            "error": _state["last_error"],
                            "next_draw": _next_draw_time(a.draws[-1]["date"]).strftime("%Y-%m-%d")}
             return self._json(s)
+        if path == "/api/network":
+            return self._json({"lan": LAN["on"], "port": PORT, "ips": _local_ips()})
         if path == "/api/tts/status":
             installed = _tts_python() is not None
             try:
@@ -622,7 +655,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    lan = "--lan" in sys.argv
+    lan = "--lan" in sys.argv or os.environ.get("LOTTO_LAN") == "1"
+    LAN["on"] = lan
     host = "0.0.0.0" if lan else "127.0.0.1"
     draws = lotto_data.load()
     if not draws:

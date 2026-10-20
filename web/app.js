@@ -1096,6 +1096,26 @@
     Girl.nextSay = performance.now() + 3500; setTimeout(() => girlSay("대장님, 안녕하세요~! 저는 뽀또예요."), 400);
   }
   $("#girl-btn").addEventListener("click", () => setGirl(!Girl.on));
+  // ---- 휴대폰으로 보기: 접속 주소와 QR(Tailscale 이 있으면 먼저, 같은 와이파이는 그다음)
+  async function openPhone() {
+    const m = $("#phone-modal"), body = $("#phone-body"); m.hidden = false;
+    body.innerHTML = "<p class='muted small'>주소를 확인하는 중…</p>";
+    let net; try { net = await (await fetch("/api/network")).json(); } catch (e) { body.innerHTML = "<p>주소를 가져오지 못했어요.</p>"; return; }
+    const tail = net.ips.filter((x) => x.kind === "tailscale"), wifi = net.ips.filter((x) => x.kind === "wifi");
+    let html = "";
+    if (!net.lan) html += `<div class="phone-note warn"><b>지금은 이 PC 에서만 열려 있어요.</b> 바탕화면 로또 아이콘으로 <b>서버를 껐다가 다시 켜면</b> 휴대폰에서도 열려요. (새 아이콘은 휴대폰 접속을 허용하도록 바꿔 두었어요. 처음 켤 때 윈도우가 방화벽 허용을 물으면 "허용"을 눌러 주세요.)</div>`;
+    const item = (x, label, hint) => { const u = `http://${x.ip}:${net.port}`; return `<div class="phone-item"><div class="qr" data-qr="${u}"></div><div><b>${label}</b><code>${u}</code><span class="muted small">${hint}</span></div></div>`; };
+    html += tail.map((x) => item(x, "Tailscale 주소 (집 밖에서도 됨)", "휴대폰에서 Tailscale 앱이 켜져 있어야 해요.")).join("");
+    html += wifi.map((x) => item(x, "같은 와이파이 주소 (집에서만)", "휴대폰이 이 PC 와 같은 와이파이에 연결돼 있어야 해요.")).join("");
+    if (!tail.length) html += `<div class="phone-note"><b>집 밖에서도 쓰려면 Tailscale (무료)</b><ol><li>이 PC 에 Tailscale 설치 후 로그인</li><li>휴대폰에 Tailscale 앱 설치, <b>같은 계정</b>으로 로그인</li><li>이 창을 다시 열면 Tailscale 주소가 나와요</li></ol></div>`;
+    html += `<div class="phone-note">휴대폰 브라우저의 <b>"홈 화면에 추가"</b>를 누르면 앱처럼 아이콘으로 열 수 있어요.</div>`;
+    body.innerHTML = html;
+    $$("#phone-body .qr").forEach((el) => { try { new window.QRCode(el, { text: el.dataset.qr, width: 148, height: 148, colorDark: "#0f172a", colorLight: "#ffffff", correctLevel: window.QRCode.CorrectLevel.M }); } catch (e) { el.textContent = "QR 을 못 그렸어요"; } });
+  }
+  $("#phone-btn").addEventListener("click", openPhone);
+  $("#phone-close").addEventListener("click", () => { $("#phone-modal").hidden = true; });
+  $("#phone-modal").addEventListener("click", (e) => { if (e.target.id === "phone-modal") $("#phone-modal").hidden = true; });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("#phone-modal").hidden = true; });
   function setRoam(on) {
     Roam.on = on; store.set("roam", on ? "1" : "0");
     document.body.classList.toggle("roam-on", on && !!Pet.big);
@@ -1121,8 +1141,10 @@
     Voice.on = mode > 0; Voice.mode = mode || 1; Voice.voice = null; store.set("tts", String(mode));
     if (!mode) { stopVoice(); chatTalk(false); }
     const b = $("#tts-btn"); b.classList.toggle("on", mode > 0);
+    const b2 = $("#tts-btn2"); const label = (mode === 3 ? "로컬 AI 목소리" : mode === 2 ? "자연스러운(인터넷)" : mode === 1 ? "기기 목소리" : "끔"); if (b2) b2.textContent = "답변 읽어 주기: " + label;
     b.textContent = "답변 읽어 주기: " + (mode === 3 ? "로컬 AI 목소리" : mode === 2 ? "자연스러운(인터넷)" : mode === 1 ? "기기 목소리" : "끔");
   }
+  $("#tts-btn2").addEventListener("click", () => $("#tts-btn").click());
   $("#tts-btn").addEventListener("click", async () => {
     const cur = Voice.on ? Voice.mode : 0, hello = "안녕하세요, 대장님. 이제 답변을 읽어 드릴게요.";
     const st = await fetch("/api/tts/status").then((r) => r.json()).catch(() => ({ installed: false }));

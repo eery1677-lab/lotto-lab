@@ -9,7 +9,7 @@ if %errorlevel%==0 (
 )
 where pythonw >nul 2>&1
 if %errorlevel%==0 (
-  start "" pythonw server.py
+  start "" pythonw server.py --lan
 ) else (
   start "로또 확률 연구소" python server.py
 )

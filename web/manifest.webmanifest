@@ -1,0 +1,9 @@
+{
+  "name": "로또 확률 연구소",
+  "short_name": "로또연구소",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#f5b800",
+  "icons": [{ "src": "icon-180.png", "sizes": "180x180", "type": "image/png" }]
+}
