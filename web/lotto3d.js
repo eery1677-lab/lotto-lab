@@ -124,7 +124,7 @@ class Lotto {
     const goldM = new THREE.MeshStandardMaterial({ color: 0xffcf3f, roughness: 0.3, metalness: 0.7 });
     const frame = new THREE.MeshStandardMaterial({ color: 0x1b2433, roughness: 0.3, metalness: 0.5 });
 
-    const body = new THREE.Group(); body.position.y = 1.15; this.rig.add(body); this.body = body;
+    const body = new THREE.Group(); body.position.y = 1.22; this.rig.add(body); this.body = body;
     body.add(new THREE.Mesh(new THREE.SphereGeometry(1, 64, 48), gold));
     // 얼굴 조각
     this.faceCanvas = document.createElement("canvas"); this.faceCanvas.width = FW; this.faceCanvas.height = FH;
@@ -169,8 +169,12 @@ class Lotto {
       const sl = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.2, 0.48, 16), white); sl.position.y = -0.24; arm.add(sl);
       const hand = new THREE.Mesh(new THREE.SphereGeometry(0.155, 20, 20), gold); hand.position.y = -0.54; arm.add(hand);
       arm.rotation.z = sx * 0.35; body.add(arm); this.arms.push(arm);
-      const foot = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 16), new THREE.MeshStandardMaterial({ color: 0x26325a, roughness: 0.5 }));
-      foot.scale.set(0.3, 0.16, 0.42); foot.position.set(sx * 0.36, -1.0, 0.22); body.add(foot);
+      // 짧은 다리(엉덩이 축에서 흔들린다) + 발
+      const legMat = new THREE.MeshStandardMaterial({ color: 0x26325a, roughness: 0.5 });
+      const leg = new THREE.Group(); leg.position.set(sx * 0.46, -0.84, 0.12); body.add(leg); this.legs = this.legs || []; this.legs.push(leg);
+      const lc = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.11, 0.24, 14), legMat); lc.position.y = -0.12; leg.add(lc);
+      const foot = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 16), legMat);
+      foot.scale.set(0.3, 0.16, 0.42); foot.position.set(0, -0.24, 0.1); leg.add(foot);
     }
     // 그림자 + 표정 기호
     const sh = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 2.6), new THREE.MeshBasicMaterial({ map: shadowTexture(), transparent: true, depthWrite: false }));
@@ -188,7 +192,7 @@ class Lotto {
     drawFace(this.faceG, this.mood, this.blink, this.look, this.mouth);
     this.shownLook = { x: this.look.x, y: this.look.y }; this.lastFace = this.t; this.faceDirty = false; this.faceTex.needsUpdate = true;
   }
-  setWalk(on, dir) { this.walking = !!on; if (dir) this.walkDir = dir; }
+  setWalk(on, dir, gait) { this.walking = !!on; if (dir) this.walkDir = dir; if (gait) this.gait = gait; }
   setTalking(on) { this.talking = !!on; if (!on) { this.mouth = null; this.faceDirty = true; } }
   spin() { if (this.spinT < 0) { this.spinT = 0; this.spinFrom = this.userYaw; } }
   /** 가만히 있을 때 가끔 하는 동작(손 흔들기·두리번·폴짝·모자 인사·기지개·춤·한 바퀴) */
@@ -272,9 +276,19 @@ class Lotto {
     if (this.talking) { p.hop += Math.abs(Math.sin(t * 13)) * 0.012; p.tz += Math.sin(t * 5.5) * 0.03; p.armR += Math.sin(t * 4) * 0.12; }   // 말할 때 고개·팔이 까딱
     this.walkK = (this.walkK || 0) + ((this.walking ? 1 : 0) - (this.walkK || 0)) * (1 - Math.exp(-6 * dt));
     if (this.walkK > 0.01) {     // 이동 중: 통통 튀고, 가는 쪽을 보고, 팔을 흔든다
-      const k = this.walkK, d = this.walkDir || 1, s = Math.sin(t * 8);
-      p.hop += Math.abs(s) * 0.2 * k; p.yaw += d * 0.55 * k; p.tz += s * 0.06 * k * d;
-      p.armR += s * 0.55 * k; p.armL += -s * 0.55 * k; p.sy *= 1 + Math.cos(t * 16) * 0.025 * k;
+      const k = this.walkK, d = this.walkDir || 1, wd = this.gait === "waddle", s = Math.sin(t * (wd ? 7 : 8));
+      if (wd) { p.hop += Math.abs(s) * 0.05 * k; p.tz += s * 0.13 * k; p.yaw += d * 0.4 * k; }       // 아장아장: 좌우로 뒤뚱
+      else { p.hop += Math.abs(s) * 0.03 * k; p.tz += s * 0.06 * k * d; p.yaw += d * 0.55 * k; p.sy *= 1 + Math.cos(t * 16) * 0.025 * k; }
+      p.armR += s * 0.55 * k; p.armL += -s * 0.55 * k;
+      const sg = s >= 0 ? 1 : -1;
+      if (wd && k > 0.5 && sg !== this.stepSign) { this.stepSign = sg; if (this.onStep) this.onStep(); }
+    }
+    if (this.legs) {                // 다리: 걸을 땐 번갈아 앞뒤로, 뛸 땐 살짝 모아 접고, 서 있으면 가만히
+      const wk = this.walkK || 0, wd = this.gait === "waddle", s = Math.sin(t * (wd ? 7 : 8));
+      this.legs.forEach((lg, i) => {
+        const tgt = wd ? s * 0.85 * wk * (i ? -1 : 1) : -Math.abs(s) * 0.5 * wk;
+        lg.rotation.x += (tgt - lg.rotation.x) * (dt === 0 ? 1 : 1 - Math.exp(-14 * dt));
+      });
     }
     const breathe = Math.sin(t * (m === "sleep" ? 1.1 : 2.2)) * (m === "sleep" ? 0.02 : 0.012);
     this.rig.position.set(p.trem, Math.sin(t * 2) * 0.03 + p.hop, 0);
@@ -362,7 +376,8 @@ const Lotto3D = {
       get yaw() { return ch.userYaw; },
       spin() { ch.spin(); },
       talk(on) { ch.setTalking(on); },
-      walk(on, dir) { ch.setWalk(on, dir); },
+      walk(on, dir, gait) { ch.setWalk(on, dir, gait); },
+      onStep(fn) { ch.onStep = fn; },
       wave() { if (ch.mood === "normal") ch.startAct("wave"); },
       act(name) { if (ch.mood === "normal") ch.startAct(name); },
       sleep(on) { ch.setMood(on ? "sleep" : "normal"); },
@@ -383,6 +398,7 @@ const Lotto3D = {
       if (it.look) { ch.lookT = ch.look = { x: it.look[0], y: it.look[1] }; }
       if (it.talk != null) { ch.setTalking(true); ch.mouth = it.talk; }
       if (it.act) ch.startAct(it.act);
+      if (it.walk) ch.setWalk(true, it.dir || 1, it.walk);
       ch.t = 1.0;
       for (let k = 0; k < Math.round((it.t || 0.5) / 0.02); k++) { ch.update(0.02); if (it.talk != null) ch.mouth = it.talk; }
       ch.update(0); ch.redraw(); renderer.render(scene, cam); out.push(renderer.domElement.toDataURL("image/png")); scene.remove(ch.group);

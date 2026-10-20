@@ -807,13 +807,17 @@
   // ---- 채팅 쪽 로또(머리의 작은 것 + 큰 화면의 오른쪽 큰 것)를 한꺼번에 다루는 도우미
   const chatPets = () => [Pet.chat, Pet.big, Roam.on && Pet.roam].filter(Boolean);
   const SAY = { normal: "궁금한 걸 물어보세요, 대장님!", happy: "조회했어요!", think: "자료를 확인하고 있어요…", wink: "추천 조합을 뽑았어요!", surprise: "앗, 이건 인기 모양이에요!", firm: "예측은 안 되지만, 사실은 알려 드려요.", worry: "앗, 문제가 생겼어요." };
-  const Roam = { on: false, x: 0, y: 0, W: 150, H: 172, timer: 0, say: 0, talking: false };
-  function roamSay(text) {
+  const Roam = { on: false, x: 0, y: 0, W: 150, H: 172, timer: 0, say: 0, talking: false, snd: true, ask: false };
+  function roamSay(text, ms, keep) {
     const el = $("#roam-say"); if (!el || !Roam.on || !text) return;
-    el.textContent = text; el.className = "roam-say" + (Roam.x < 120 ? " left" : Roam.x > innerWidth - 270 ? " right" : "") + (Roam.y < 90 ? " below" : "");
-    void el.offsetHeight; el.classList.add("show");
-    clearTimeout(Roam.say); Roam.say = setTimeout(() => el.classList.remove("show"), Math.min(9000, 2800 + text.length * 70));
+    const top = $("#roam-top"); top.className = "roam-top" + (Roam.x < 140 ? " left" : Roam.x > innerWidth - 320 ? " right" : "") + (Roam.y < 130 ? " below" : "");
+    if (!keep || !el.classList.contains("show")) { el.className = "roam-say"; void el.offsetHeight; el.classList.add("show"); }
+    el.textContent = text;
+    clearTimeout(Roam.say); Roam.say = setTimeout(() => el.classList.remove("show"), ms || Math.min(9000, 2800 + text.length * 70));
   }
+  // 답이 흘러나오는 동안 말풍선에 실시간으로 보여 준다(끝 120자)
+  const snip = (t, n) => { const c = t.replace(/```[\s\S]*?```/g, " ").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[*#>`|_~]/g, " ").replace(/\s+/g, " ").trim(); return c.length > n ? "…" + c.slice(-n) : c; };
+  function roamLive(t) { const c = snip(t, 120); if (c) roamSay(c, 20000, true); }
   function lottoSay(text) {
     roamSay(text);
     const el = $("#lotto-say"); if (!el || !text) return;
@@ -822,11 +826,13 @@
   function chatMood(m) { chatPets().forEach((p) => p.setMood(m)); lottoSay(SAY[m] || SAY.normal); }
   function chatTalk(on) { Roam.talking = !!on; chatPets().forEach((p) => p.talk(on)); }
   // ---- 답변을 소리 내어 읽기: 이 기기에 들어 있는 한국어 목소리만 쓴다(인터넷 목소리는 글이 밖으로 나가서 제외)
-  const Voice = { on: false, voice: null, q: 0 };
-  function pickVoice() {
+  // 모드 1 = 기기 목소리(글이 밖으로 안 나감, 기계음에 가까움), 모드 2 = 자연스러운 인터넷 목소리(Edge 의 Natural 등 — 읽을 글이 마이크로소프트 서버로 간다)
+  const Voice = { on: false, mode: 1, voice: null, q: 0 };
+  function pickVoice(mode) {
     if (!("speechSynthesis" in window)) return null;
-    const vs = speechSynthesis.getVoices().filter((v) => /^ko/i.test(v.lang) && v.localService);
-    return vs[0] || null;
+    const ko = speechSynthesis.getVoices().filter((v) => /^ko/i.test(v.lang));
+    if ((mode || Voice.mode) === 2) return ko.find((v) => !v.localService && /natural/i.test(v.name)) || ko.find((v) => !v.localService) || null;
+    return ko.find((v) => v.localService) || null;
   }
   function stopVoice() { Voice.q++; try { speechSynthesis.cancel(); } catch (e) { /* 지원 안 함 */ } }
   function speakAnswer(text) {
@@ -880,7 +886,7 @@
       Pet.machine = window.Lotto3D.mount($("#lotto-pet"), { onTap: tap(() => Pet.machine) });
       Pet.chat = window.Lotto3D.mount($("#lotto-chat"), { onTap: tap(() => Pet.chat) });
       Pet.big = window.Lotto3D.mount($("#lotto-big"), { onTap: tap(() => Pet.big) });
-      const m0 = Pet.machine, fwd = (f) => (...a) => { m0[f](...a); if (Roam.on && Pet.roam) Pet.roam[f](...a); };
+      const m0 = Pet.machine, fwd = (f) => (...a) => { m0[f](...a); if (Roam.on && Pet.roam && f !== "sleep") Pet.roam[f](...a); };
       Pet.machine = m0 && { setMood: fwd("setMood"), hop: fwd("hop"), sleep: fwd("sleep"), get mood() { return m0.mood; } };
       setRoam(store.get("roam", (innerWidth >= 900 && !matchMedia("(prefers-reduced-motion: reduce)").matches) ? "1" : "0") === "1");
     } catch (e) { /* 실시간 3D 만 포기 */ }
@@ -895,13 +901,13 @@
   setInterval(() => { if (document.body.classList.contains("ai-mode") && !chat.busy && !sleeping && Pet.big) lottoSay(QUIPS[quipI++ % QUIPS.length]); }, 16000);
   // 오래 가만히 있으면 졸고, 만지면 깬다
   let lastActive = Date.now(), sleeping = false;
-  const livePets = () => [Pet.machine].concat(chatPets()).filter(Boolean);
+  const livePets = () => [Pet.machine, Pet.chat, Pet.big].filter(Boolean);   // 돌아다니는 로또는 졸지 않는다
   function wake() {
     lastActive = Date.now();
     if (!sleeping) return;
     sleeping = false; livePets().forEach((p) => p.sleep(false));
-    chatPets().forEach((p) => p.setMood("surprise")); lottoSay("앗, 안 잤어요!");
-    setTimeout(() => chatPets().forEach((p) => p.mood === "surprise" && p.setMood("normal")), 1500);
+    [Pet.chat, Pet.big].filter(Boolean).forEach((p) => p.setMood("surprise")); lottoSay("앗, 안 잤어요!");
+    setTimeout(() => [Pet.chat, Pet.big].filter(Boolean).forEach((p) => p.mood === "surprise" && p.setMood("normal")), 1500);
   }
   ["pointermove", "pointerdown", "keydown", "touchstart"].forEach((ev) => window.addEventListener(ev, wake, { passive: true }));
   setInterval(() => {
@@ -910,48 +916,112 @@
   }, 5000);
   // ---- 화면 안을 돌아다니는 로또
   const rnd = (a, b) => a + Math.random() * (b - a);
-  function roamPlace(x, y, ms) {
-    const el = $("#lotto-roam"); Roam.x = x; Roam.y = y;
-    el.style.transition = ms ? `transform ${ms}ms cubic-bezier(.45,.05,.55,.95)` : "none"; el.style.transform = `translate(${x}px,${y}px)`;
+  // 폴짝폴짝: 짧게 여러 번 뛰며 돌아다닌다. 뛸 때마다 방향이 조금씩 바뀌고, 가끔 크게 뛰고, 쉬었다 간다. 착지할 때 "통" 소리.
+  const Hop = { mode: "hop", stepK: 0, t: 0, dur: 0, fx: 0, fy: 0, tx: 0, ty: 0, h: 0, heading: Math.random() * 6.28, left: 0, rest: 1.2, raf: 0, last: 0 };
+  let audio = null;
+  function popSound(x, soft) {
+    if (!Roam.snd) return;
+    try {
+      audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+      if (audio.state === "suspended") audio.resume();
+      const t = audio.currentTime, o = audio.createOscillator(), g = audio.createGain(), f = soft ? rnd(520, 640) : rnd(300, 430);
+      o.type = "sine"; o.frequency.setValueAtTime(f * 1.7, t); o.frequency.exponentialRampToValueAtTime(f * 0.55, t + 0.11);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(soft ? 0.05 : 0.14, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.17);
+      let node = g; o.connect(g);
+      if (audio.createStereoPanner) { const p = audio.createStereoPanner(); p.pan.value = Math.max(-0.7, Math.min(0.7, (x / Math.max(1, innerWidth)) * 1.6 - 0.8)); g.connect(p); node = p; }
+      node.connect(audio.destination); o.start(t); o.stop(t + 0.2);
+    } catch (e) { /* 소리 불가 환경 */ }
   }
-  function roamStep() {
-    clearTimeout(Roam.timer); if (!Roam.on || !Pet.roam) return;
-    const rest = (a, b) => { Roam.timer = setTimeout(roamStep, rnd(a, b)); };
-    if (document.hidden || sleeping || Roam.talking || window.innerWidth < 600) return rest(1800, 3000);
-    const tx = rnd(8, Math.max(9, innerWidth - Roam.W - 8)), ty = rnd(56, Math.max(57, innerHeight - Roam.H - 8));
-    const dist = Math.hypot(tx - Roam.x, ty - Roam.y), ms = Math.max(1600, dist / 105 * 1000);
-    Pet.roam.walk(true, tx >= Roam.x ? 1 : -1); roamPlace(tx, ty, ms);
-    Roam.timer = setTimeout(() => { Pet.roam && Pet.roam.walk(false); rest(2500, 7500); }, ms);
+  function roamPlace(x, y) { Roam.x = x; Roam.y = y; $("#lotto-roam").style.transform = `translate(${x}px,${y}px)`; }
+  function startHop() {
+    const maxX = Math.max(9, innerWidth - Roam.W - 8), maxY = Math.max(57, innerHeight - Roam.H - 8);
+    const wd = Hop.mode === "waddle", leap = !wd && Math.random() < 0.15, dist = wd ? rnd(140, 300) : leap ? rnd(260, 400) : rnd(80, 170);
+    let tx = Roam.x, ty = Roam.y, ok = false;
+    for (let i = 0; i < 10 && !ok; i++) {
+      const hd = Hop.heading + (i < 4 ? rnd(-(wd ? 0.7 : 1.1), wd ? 0.7 : 1.1) : rnd(-3.14, 3.14));
+      tx = Roam.x + Math.cos(hd) * dist; ty = Roam.y + Math.sin(hd) * dist * 0.75;
+      if (tx >= 8 && tx <= maxX && ty >= 56 && ty <= maxY) { ok = true; Hop.heading = hd; }
+    }
+    if (!ok) { tx = Math.max(8, Math.min(maxX, tx)); ty = Math.max(56, Math.min(maxY, ty)); Hop.heading = Math.atan2(ty - Roam.y + (innerHeight / 2 - ty) * 0.2, tx - Roam.x + (innerWidth / 2 - tx) * 0.2); }
+    Hop.fx = Roam.x; Hop.fy = Roam.y; Hop.tx = tx; Hop.ty = ty; Hop.t = 0;
+    const d = Math.hypot(tx - Hop.fx, ty - Hop.fy);
+    Hop.dur = wd ? d / 85 : 0.34 + d / 650; Hop.h = wd ? 0 : (leap ? 90 : 28) + d * 0.22 + rnd(0, 14);
+    Pet.roam.walk(true, tx >= Hop.fx ? 1 : -1, Hop.mode);
   }
+  function roamLoop(ts) {
+    Hop.raf = 0; if (!Roam.on || !Pet.roam) return;
+    Hop.raf = requestAnimationFrame(roamLoop);
+    const dt = Hop.last ? Math.min(0.05, (ts - Hop.last) / 1000) : 0; Hop.last = ts;
+    if (document.hidden || window.innerWidth < 600) return;
+    const el = $("#lotto-roam"), body = $("#roam-body");
+    if (Hop.dur > 0) {
+      Hop.t += dt; const k = Math.min(1, Hop.t / Hop.dur);
+      const x = Hop.fx + (Hop.tx - Hop.fx) * k, gy = Hop.fy + (Hop.ty - Hop.fy) * k;
+      Roam.x = x; Roam.y = gy;
+      const wd = Hop.mode === "waddle";
+      el.style.transform = `translate(${x}px,${gy - (wd ? Math.abs(Math.sin(Hop.t * 7)) * 4 : Math.sin(k * Math.PI) * Hop.h)}px)`;
+      body.style.transform = wd ? "" : k < 0.14 ? "scale(.93,1.09)" : "";
+      if (k >= 1) {                                  // 착지: 찌그러졌다 펴지고 "통"
+        Hop.dur = 0; if (!wd) { popSound(x); body.style.transform = "scale(1.13,.87)"; setTimeout(() => { body.style.transform = ""; }, 110); }
+        if (--Hop.left <= 0) { Pet.roam.walk(false); Hop.rest = rnd(0.8, 3.2); if (Math.random() < 0.5) Pet.roam.act(["wave", "hatTip", "wiggle", "twirl", "look"][Math.floor(Math.random() * 5)]); }
+        else Hop.rest = rnd(0.02, 0.12);
+      }
+      return;
+    }
+    if (Roam.talking || Roam.ask || chat.busy) return;   // 말하는 중·질문 입력 중·생각 중에는 서서 이야기
+    Hop.rest -= dt;
+    if (Hop.rest <= 0) {
+      if (Hop.left <= 0) { Hop.mode = Math.random() < 0.45 ? "waddle" : "hop"; Hop.left = Hop.mode === "waddle" ? 2 + Math.floor(Math.random() * 3) : 3 + Math.floor(Math.random() * 6); }
+      startHop();
+    }
+  }
+  // 로또를 클릭하면 말 걸기 입력줄이 열린다 → 질문은 AI 상담과 같은 길로 가고, 답은 말풍선에 실시간으로 나온다
+  function openAsk(on) {
+    const f = $("#roam-ask"); f.hidden = !on; Roam.ask = on;
+    if (on) { roamSay("네, 대장님! 무엇이 궁금하세요?", 5000); setTimeout(() => $("#roam-q").focus(), 30); } else $("#roam-q").blur();
+  }
+  $("#roam-ask").addEventListener("submit", (e) => {
+    e.preventDefault(); const q = $("#roam-q").value.trim(); if (!q) return;
+    $("#roam-q").value = ""; openAsk(false); send(q);
+  });
+  $("#roam-q").addEventListener("keydown", (e) => { if (e.key === "Escape") openAsk(false); });
   function setRoam(on) {
     Roam.on = on; store.set("roam", on ? "1" : "0");
     document.body.classList.toggle("roam-on", on && !!Pet.big);
     $("#roam-btn").classList.toggle("on", on); $("#roam-btn").textContent = "로또 돌아다니기: " + (on ? "켬" : "끔");
-    const el = $("#lotto-roam"); el.hidden = !on; clearTimeout(Roam.timer);
+    const el = $("#lotto-roam"); el.hidden = !on; cancelAnimationFrame(Hop.raf); Hop.raf = 0; Hop.last = 0; Hop.dur = 0;
     if (!on) { Pet.roam && Pet.roam.walk(false); return; }
     if (!Pet.roam && window.Lotto3D && window.Lotto3D.ok) {
-      Pet.roam = window.Lotto3D.mount($("#roam-body"), { onTap: () => { if (!Pet.roam) return; Math.random() < 0.5 ? Pet.roam.hop() : Pet.roam.wave(); roamSay(["안녕하세요, 대장님!", "저 여기 있어요!", "AI 상담에서 물어보세요!", "통계는 자신 있어요!"][Math.floor(Math.random() * 4)]); } });
+      Pet.roam = window.Lotto3D.mount($("#roam-body"), { onTap: () => { if (!Pet.roam) return; Math.random() < 0.5 ? Pet.roam.hop() : Pet.roam.wave(); popSound(Roam.x); openAsk(!$("#roam-ask").hidden ? false : true); } });
     }
     if (!Pet.roam) { Roam.on = false; el.hidden = true; document.body.classList.remove("roam-on"); return; }
-    roamPlace(Roam.x || innerWidth - Roam.W - 30, Roam.y || innerHeight - Roam.H - 20, 0);
-    Roam.timer = setTimeout(roamStep, 1200);
+    roamPlace(Roam.x || innerWidth - Roam.W - 30, Roam.y || innerHeight - Roam.H - 20);
+    Pet.roam.onStep(() => { if (Hop.mode === "waddle") popSound(Roam.x, true); });
+    Hop.left = 0; Hop.rest = 1.2; Hop.raf = requestAnimationFrame(roamLoop);
   }
-  window.addEventListener("resize", () => { if (Roam.on) roamPlace(Math.min(Roam.x, Math.max(0, innerWidth - Roam.W)), Math.min(Roam.y, Math.max(0, innerHeight - Roam.H)), 0); });
+  window.addEventListener("resize", () => { if (Roam.on) roamPlace(Math.min(Roam.x, Math.max(0, innerWidth - Roam.W)), Math.min(Roam.y, Math.max(0, innerHeight - Roam.H))); });
+  $("#snd-btn").addEventListener("click", () => { Roam.snd = !Roam.snd; store.set("snd", Roam.snd ? "1" : "0"); $("#snd-btn").classList.toggle("on", Roam.snd); $("#snd-btn").textContent = "통통 소리: " + (Roam.snd ? "켬" : "끔"); if (Roam.snd) popSound(Roam.x); });
+  Roam.snd = store.get("snd", "1") === "1"; $("#snd-btn").classList.toggle("on", Roam.snd); $("#snd-btn").textContent = "통통 소리: " + (Roam.snd ? "켬" : "끔");
   $("#roam-btn").addEventListener("click", () => setRoam(!Roam.on));
   // ---- 답변 읽어 주기 켜고 끄기
-  function setTts(on) {
-    Voice.on = on; store.set("tts", on ? "1" : "0"); if (!on) { stopVoice(); chatTalk(false); }
-    const b = $("#tts-btn"); b.classList.toggle("on", on); b.textContent = "답변 읽어 주기: " + (on ? "켬" : "끔");
+  function setTts(mode) {     // 0 끔 · 1 기기 목소리 · 2 자연스러운(인터넷) 목소리
+    Voice.on = mode > 0; Voice.mode = mode || 1; Voice.voice = null; store.set("tts", String(mode));
+    if (!mode) { stopVoice(); chatTalk(false); }
+    const b = $("#tts-btn"); b.classList.toggle("on", mode > 0);
+    b.textContent = "답변 읽어 주기: " + (mode === 2 ? "자연스러운(인터넷)" : mode === 1 ? "기기 목소리" : "끔");
   }
   $("#tts-btn").addEventListener("click", () => {
     if (!("speechSynthesis" in window)) { alert("이 브라우저는 소리 내어 읽기를 지원하지 않습니다."); return; }
-    if (Voice.on) return setTts(false);
-    Voice.voice = pickVoice();
-    if (!Voice.voice) { alert("이 기기에 한국어 목소리가 없습니다. (인터넷으로 글을 보내는 목소리는 쓰지 않습니다.)\n윈도우: 설정 → 시간 및 언어 → 음성 에서 한국어 음성을 추가하면 됩니다."); return; }
-    setTts(true); speakAnswer("안녕하세요, 대장님. 이제 답변을 읽어 드릴게요.");
+    const cur = Voice.on ? Voice.mode : 0, hello = "안녕하세요, 대장님. 이제 답변을 읽어 드릴게요.";
+    if (cur === 0 && pickVoice(1)) { setTts(1); speakAnswer(hello); return; }
+    if (cur <= 1 && pickVoice(2)) {
+      if (!confirm("자연스러운 목소리는 인터넷(마이크로소프트 서버)으로 읽을 글을 보냅니다. 로또 상담 답변만 해당하고 고객 정보는 없습니다.\\n그래도 쓸까요?")) return setTts(0);
+      setTts(2); speakAnswer(hello); return;
+    }
+    setTts(0);
   });
   if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = () => { Voice.voice = null; };
-  if (store.get("tts", "0") === "1") setTimeout(() => setTts(!!pickVoice()), 600); else setTts(false);
+  { const m = Number(store.get("tts", "0")); setTimeout(() => setTts(m && pickVoice(m) ? m : 0), 600); }
   window.addEventListener("lotto3d-ready", initPet);
   if (window.Lotto3D) initPet();
 
@@ -1034,6 +1104,7 @@
             answer += d.content;
             if (!talking) { talking = true; chatTalk(true); }
             const shown = answer.replace(/<think>[\s\S]*?(<\/think>|$)/g, "").trim();
+            roamLive(shown);
             body.innerHTML = shown ? md(shown) : `<span class="typing">${thinking || /<think>/.test(answer) ? "생각 중…" : "작성 중…"}</span>`;
             $("#chat-log").scrollTop = 1e9;
           }
@@ -1069,6 +1140,7 @@
     setAvatarMood(el, mood);
     chatMood(mood);
     speakAnswer(answer);
+    { const f = answer.replace(/```[\s\S]*?```/g, " ").replace(/[*#>`|_~]/g, " ").replace(/\s+/g, " ").trim(); roamSay(f.length > 150 ? f.slice(0, 147) + "…" : f, Voice.on ? 16000 : 10000); }
     chat.history.push(cards.length ? { role: "assistant", content: answer, cards, mood } : { role: "assistant", content: answer, mood });
     store.set("chat", JSON.stringify(chat.history.slice(-20)));
     chat.busy = false; chat.ctrl = null;

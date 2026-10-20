@@ -6,7 +6,7 @@
 <title>로또 확률 연구소</title>
 <link rel="icon" href="icon-64.png" type="image/png">
 <link rel="apple-touch-icon" href="icon-180.png">
-<link rel="stylesheet" href="style.css?v=22">
+<link rel="stylesheet" href="style.css?v=23">
 </head>
 <body>
 <div class="app">
@@ -25,6 +25,7 @@
       <div id="data-status">자료 불러오는 중…</div>
       <button class="theme-btn" id="theme-btn">화면 밝기 전환</button>
       <button class="theme-btn" id="roam-btn">로또 돌아다니기</button>
+      <button class="theme-btn" id="snd-btn">통통 소리</button>
       <button class="theme-btn" id="tts-btn">답변 읽어 주기</button>
       <div style="margin-top:10px">도박 고민 상담 <b>국번없이 1336</b></div>
     </div>
@@ -342,9 +343,9 @@
   </main>
 </div>
 <div class="toast" id="toast"></div>
-<div class="lotto-roam" id="lotto-roam" hidden><div class="roam-say" id="roam-say"></div><div class="roam-body" id="roam-body" title="로또 — 끌어서 돌려 보세요, 클릭하면 인사해요"></div></div>
+<div class="lotto-roam" id="lotto-roam" hidden><div class="roam-top" id="roam-top"><div class="roam-say" id="roam-say"></div><form class="roam-ask" id="roam-ask" hidden><input id="roam-q" type="text" maxlength="200" autocomplete="off" placeholder="로또에게 말 걸기…"><button type="submit" aria-label="보내기">↵</button></form></div><div class="roam-body" id="roam-body" title="로또 — 끌어서 돌려 보세요, 클릭하면 인사해요"></div></div>
 <script src="machine.js?v=8"></script>
-<script src="app.js?v=24"></script>
-<script type="module" src="lotto3d.js?v=11"></script>
+<script src="app.js?v=28"></script>
+<script type="module" src="lotto3d.js?v=14"></script>
 </body>
 </html>
