@@ -18,6 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import lotto_data
 import answer_check
+import briefing
 import chat_tools
 import tickets
 from analysis import Analyzer
@@ -71,6 +72,7 @@ def refresh(force=False):
         draws = lotto_data.fetch_all()
         if not a or len(draws) != a.n:
             _rebuild(draws)
+            start_briefing()  # 새 회차 → 주간 브리핑(AI 요약)을 백그라운드로
         _state["last_error"] = ""
         return True
     except Exception as e:  # 인터넷 끊김 등 — 저장된 자료로 계속
@@ -79,6 +81,29 @@ def refresh(force=False):
     finally:
         with _lock:
             _state["updating"] = False
+
+
+def pick_model():
+    """브리핑용 LM Studio 모델: AI 상담에서 마지막으로 쓴 것, 없으면 로드된 첫 모델."""
+    base, model = briefing.lms_choice()
+    base = base or DEFAULT_LMS
+    if model:
+        return base, model
+    try:
+        ms = lms_models(base)
+        loaded = [m for m in ms if m["loaded"]] or ms
+        return base, (loaded[0]["id"] if loaded else None)
+    except Exception:
+        return base, None
+
+
+def start_briefing(force=False):
+    a = analyzer()
+    if a:
+        try:
+            briefing.ensure_ai_async(a, _lms_post, pick_model, force=force)
+        except Exception:
+            pass  # 브리핑은 부가 기능 — 실패해도 사이트는 그대로
 
 
 def refresh_async(force=False):
@@ -280,6 +305,14 @@ class Handler(BaseHTTPRequestHandler):
                            "error": _state["last_error"],
                            "next_draw": _next_draw_time(a.draws[-1]["date"]).strftime("%Y-%m-%d")}
             return self._json(s)
+        if path == "/api/briefing":
+            a = analyzer()
+            b = dict(briefing.get(a))
+            if not (b.get("ai") or {}).get("status") in ("ok", "rejected"):
+                start_briefing()
+            b["my"] = briefing.my_result(a, b["no"])
+            b["ai_running"] = briefing.is_running(b["no"])
+            return self._json(b)
         if path == "/api/tickets":
             a = analyzer()
             return self._json(tickets.report(a.draws, a.draws[-1]["no"] + 1))
@@ -339,6 +372,9 @@ class Handler(BaseHTTPRequestHandler):
             if len(nums) != 6 or len(set(nums)) != 6 or not all(1 <= x <= 45 for x in nums):
                 return self._json({"error": "1~45 사이 서로 다른 숫자 6개를 넣어 주세요"}, 400)
             return self._json({"eval": a.evaluate(nums), "history": a.history_check(nums)})
+        if path == "/api/briefing/regenerate":
+            start_briefing(force=True)
+            return self._json({"ok": True})
         if path.startswith("/api/tickets/"):
             try:
                 if path == "/api/tickets/add":
@@ -399,6 +435,10 @@ class Handler(BaseHTTPRequestHandler):
         if not msgs or msgs[-1]["role"] != "user":
             return self._json({"error": "질문이 없습니다"}, 400)
         question = str(msgs[-1]["content"])
+        try:
+            briefing.save_lms_choice(base, body.get("model") or "")
+        except OSError:
+            pass
         want_tools = body.get("tools") is not False
 
         def system(tools_on):
@@ -485,6 +525,7 @@ def main():
         draws = lotto_data.fetch_all()
     _rebuild(draws)
     refresh_async()
+    start_briefing()
     url = f"http://127.0.0.1:{PORT}"
     try:
         httpd = ThreadingHTTPServer((host, PORT), Handler)

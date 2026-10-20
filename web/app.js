@@ -762,6 +762,69 @@
     $("#chat-log").scrollTop = 1e9;
   }
 
+  // ---------------------------------------------------------------- 주간 브리핑 (첫 화면)
+  let briefPoll = null;
+  function renderBrief(b) {
+    const box = $("#home-brief");
+    if (!b || !b.no) { box.hidden = true; $("#latest").hidden = false; return; }
+    box.hidden = false;
+    $("#latest").hidden = true;  // 같은 회차 결과가 겹치지 않게
+    const r1 = b.rank1, bt = r1.by_type, sh = b.shape, ai = b.ai || {};
+    const facts = [
+      r1.winners ? `1등 <b>${r1.winners}명</b> · 1인당 ${won(r1.amount)}(세전) / 세후 약 ${won(r1.amount_net)}` : "1등 당첨자 없음 — 1등 상금 이월",
+      bt ? `1등 구매 방식: 자동 ${bt.auto} · 수동 ${bt.manual} · 반자동 ${bt.semi}` : "",
+      `평균 조합이면 1등 약 ${b.expected_rank1}명 — 모델은 이 조합을 인기도 ${b.model.popularity}배로 보아 약 ${b.model.expected}명 예상(참고)`,
+      b.model.patterns.length ? `<span style="color:var(--warn)">알려진 인기 모양: ${b.model.patterns.map(esc).join(", ")}</span>` : "",
+      `합계 ${sh.sum}(이론 평균 138) · 홀수 ${sh.odd}개 · 연속 쌍 ${sh.consec}개 · 지난 회차와 겹친 번호 ${sh.repeat.length ? sh.repeat.join(", ") : "없음"}`,
+      sh.long_gap.length ? `오래 만에 나온 번호: ${sh.long_gap.map((x) => `${x.n}번(${x.gap}회 만)`).join(", ")} — 우연입니다` : "",
+    ].filter(Boolean);
+    let aiHTML;
+    if (ai.status === "ok") {
+      aiHTML = `<div class="brief-ai"><span class="lbl">AI 요약 · ${esc(ai.model || "")}${ai.revised ? " · 검토 후 고침" : ""} · 숫자 검사 통과</span>${esc(ai.text)}</div>`;
+    } else if (b.ai_running) {
+      aiHTML = `<div class="brief-ai"><span class="lbl">AI 요약</span><span class="typing">LM Studio 로 요약을 만드는 중…</span></div>`;
+    } else {
+      const why = ai.status === "rejected" ? "숫자 검사를 통과하지 못해 싣지 않았습니다"
+        : ai.reason ? "LM Studio 에 연결하지 못했습니다" : "아직 만들지 않았습니다";
+      aiHTML = `<div class="brief-ai"><span class="lbl">AI 요약</span><span class="small muted">${why}. 아래 사실은 코드가 계산한 값입니다.</span>
+        <button class="btn sm" id="brief-regen" style="margin-left:8px">다시 만들기</button></div>`;
+    }
+    const my = b.my;
+    box.innerHTML = `
+      <div class="brief-head">
+        <div><div class="small muted">이번 주 브리핑 · ${esc(b.date)} 추첨</div><h2 style="margin:2px 0 0">${b.no}회 결과</h2></div>
+        ${balls(b.nums, b.bonus)}
+      </div>
+      ${aiHTML}
+      <ul class="brief-facts">${facts.map((f) => `<li>${f}</li>`).join("")}</ul>
+      ${my ? `<div class="callout info small" style="margin-top:10px">내 구매: ${my.games}게임 중 ${my.wins}게임 당첨 · 받은 돈 ${won(my.won)} / 쓴 돈 ${won(my.cost)} · 가장 많이 맞힌 것 ${my.best}개</div>` : ""}
+      <div class="brief-picks">
+        <div class="small muted" style="margin-bottom:6px">다음 추첨 <b>${b.next.no}회 · ${esc(b.next.date)}(토)</b> — 이번 주 비인기 추천(당첨 확률은 모두 같음)</div>
+        ${b.picks.map((p, i) => `<div class="tcard-row"><span class="lbl">${String.fromCharCode(65 + i)}</span>${balls(p, null, "sm")}${addBtn([p], "담기")}</div>`).join("")}
+        <div style="margin-top:6px">${addBtn(b.picks, `${b.picks.length}게임 모두 담기`)}</div>
+      </div>`;
+    const regen = $("#brief-regen");
+    if (regen) regen.addEventListener("click", async () => {
+      regen.disabled = true;
+      try { await api("/api/briefing/regenerate", {}); } catch (e) { /* 아래 다시 읽기 */ }
+      setTimeout(loadBrief, 800);
+    });
+    clearTimeout(briefPoll);
+    if (b.ai_running) briefPoll = setTimeout(loadBrief, 5000);  // 요약이 끝나면 저절로 바뀜
+  }
+  async function loadBrief() {
+    try { renderBrief(await api("/api/briefing")); } catch (e) { $("#home-brief").hidden = true; }
+  }
+  $("#home-brief").addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-add]");
+    if (!b || b.disabled) return;
+    let games;
+    try { games = JSON.parse(b.dataset.add); } catch (err) { return; }
+    b.disabled = true;
+    if (await addTickets(games, "주간 브리핑")) b.textContent = "담았습니다 ✓";
+    else b.disabled = false;
+  });
+
   // ---------------------------------------------------------------- 시작
   async function load() {
     try {
@@ -772,6 +835,7 @@
     }
     renderHome(); renderStats(); renderBacktest(); renderPopular();
     loadMine();
+    loadBrief();
   }
   load().then(() => {
     const v = store.get("view", "home");
