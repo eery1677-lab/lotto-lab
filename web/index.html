@@ -6,7 +6,7 @@
 <title>로또 확률 연구소</title>
 <link rel="icon" href="icon-64.png" type="image/png">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="style.css?v=9">
+<link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
 <div class="app">
@@ -31,24 +31,22 @@
   <main>
     <!-- 요약 -->
     <section class="view active" id="view-home">
-      <h1>요약</h1>
-      <p class="lead">동행복권 공식 자료 전 회차를 수학적으로 분석한 결과입니다.</p>
+      <h1 class="sr-only">요약</h1>
+      <div class="card hero2" id="home-hero"></div>
+      <div class="grid g4 stats-tight" id="home-stats"></div>
       <div class="card brief" id="home-brief" hidden></div>
-      <div class="card hero" id="latest"></div>
       <div class="card" id="home-mine" hidden></div>
-      <div class="grid g4" id="home-stats"></div>
-      <div class="grid g2">
-        <div class="card">
-          <h2>결론부터</h2>
+      <details class="card fold" data-fold="conclusion">
+        <summary>결론과 무작위성 검정 <span class="muted small">— 당첨 번호를 맞히는 방법이 없는 이유</span></summary>
+        <div class="fold-body grid g2">
           <div class="callout info" id="home-conclusion"></div>
-          <h3 style="margin-top:16px">무작위성 검정 결과</h3>
           <div class="verdicts" id="home-verdicts"></div>
         </div>
-        <div class="card">
-          <h2>최근 당첨번호</h2>
-          <table class="draw-list" id="recent"></table>
-        </div>
-      </div>
+      </details>
+      <details class="card fold" data-fold="recent">
+        <summary>최근 12회 당첨번호</summary>
+        <div class="fold-body"><table class="draw-list" id="recent"></table></div>
+      </details>
     </section>
 
     <!-- 번호 만들기 -->
@@ -303,6 +301,6 @@
   </main>
 </div>
 <div class="toast" id="toast"></div>
-<script src="app.js?v=13"></script>
+<script src="app.js?v=14"></script>
 </body>
 </html>

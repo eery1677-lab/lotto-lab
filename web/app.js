@@ -116,23 +116,45 @@
   }
 
   // ---------------------------------------------------------------- 요약
+  function afterTax(x) {  // analysis.after_tax 와 같은 규칙(화면 표시용)
+    if (x <= 2000000) return x;
+    const t = x - 1000;
+    return Math.round(x - (0.22 * Math.min(t, 3e8) + 0.33 * Math.max(0, t - 3e8)));
+  }
+  function dday(dateStr) {
+    const [y, mo, da] = dateStr.split("-").map(Number);
+    const now = new Date();
+    const diff = Math.round((new Date(y, mo - 1, da) - new Date(now.getFullYear(), now.getMonth(), now.getDate())) / 864e5);
+    return diff > 0 ? `D-${diff}` : diff === 0 ? "오늘 추첨" : "결과 확인 중";
+  }
   function renderHome() {
     const d = S.latest, m = S.money, r = S.randomness, b = S.backtest;
-    $("#latest").innerHTML = `
-      <div>
-        <div class="title">최신 회차 · ${esc(d.date)} 추첨</div>
-        <div class="no">${d.no}회</div>
-        <div class="small muted">1등 ${fmt(d.winners[0])}명 · 1인당 ${won(d.amounts[0])}</div>
+    const next = S.status.next_draw;
+    $("#home-hero").innerHTML = `
+      <div class="hero2-main">
+        <div class="small muted">최신 <b>${d.no}회</b> · ${esc(d.date)} 추첨</div>
+        ${balls(d.nums, d.bonus, "lg")}
+        <div class="hero2-sub">${d.winners[0]
+          ? `1등 <b>${fmt(d.winners[0])}명</b> · 1인당 ${won(d.amounts[0])} <span class="muted">(세후 약 ${won(afterTax(d.amounts[0]))})</span>`
+          : "1등 당첨자 없음 — 이월"}</div>
       </div>
-      ${balls(d.nums, d.bonus, "lg")}`;
+      <div class="hero2-side">
+        <div class="dday">${dday(next)}</div>
+        <div class="small muted">다음 ${d.no + 1}회 · ${esc(next)}(토) 20:35</div>
+        <div class="hero2-btns">
+          <button class="btn primary" data-go="gen">번호 만들기</button>
+          <button class="btn ai" data-go="ai">AI에게 묻기</button>
+        </div>
+      </div>`;
+    $$("#home-hero [data-go]").forEach((x) => x.addEventListener("click", () => showView(x.dataset.go)));
     const tests = [r.freq_test.p, r.sum.test.p, r.odd.test.p, r.repeat.test.p, r.consecutive.p];
     const passed = tests.filter((p) => p >= 0.05).length;
     const beat = b.strategies.filter((s) => s.key !== "random" && s.p < 0.05 && s.mean > b.theory_mean).length;
     $("#home-stats").innerHTML = [
-      ["1등 확률", "1 / 8,145,060", "어떤 번호를 골라도 같음"],
-      ["1,000원당 돌아오는 돈", `약 ${Math.round(m.payout_pct_recent * 10)}원`, `최근 52회 환급률 ${m.payout_pct_recent}%`],
-      ["무작위성 검정", `${passed} / ${tests.length} 통과`, "통과 = 완전 무작위와 구별 안 됨"],
-      ["예측법 7가지", beat ? `${beat}개가 무작위보다 나음` : "전부 무작위와 같음", `${fmt(b.tested)}회 실제 결과로 검증`],
+      ["1등 확률", "1 / 8,145,060", "어떤 번호든 같음"],
+      ["1,000원당 돌아오는 돈", `평균 ${m.ev_avg ? m.ev_avg[0] : Math.round(m.payout_pct_recent * 10)}원`, m.ev_floor ? `비인기 조합 최대 ${m.ev_floor[0]}원` : `환급률 ${m.payout_pct_recent}%`],
+      ["무작위성 검정", `${passed} / ${tests.length} 통과`, "완전 무작위와 구별 안 됨"],
+      ["예측법 7가지", beat ? `${beat}개 우세` : "전부 효과 없음", `${fmt(b.tested)}회로 검증`],
     ].map(([k, v, s]) => `<div class="card stat"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join("");
     $("#home-conclusion").innerHTML = `
       <b>당첨 번호를 맞히는 방법은 없습니다.</b> ${fmt(S.randomness.draws)}회 결과는 완전 무작위와 구별되지 않고,
@@ -790,13 +812,23 @@
     $("#chat-log").scrollTop = 1e9;
   }
 
+  // 접기 상태 기억(<details data-fold>)
+  function bindFolds(root) {
+    $$("details[data-fold]", root).forEach((d) => {
+      if (d.dataset.bound) return;
+      d.dataset.bound = "1";
+      d.open = store.get("fold_" + d.dataset.fold, "0") === "1";
+      d.addEventListener("toggle", () => store.set("fold_" + d.dataset.fold, d.open ? "1" : "0"));
+    });
+  }
+  bindFolds(document);
+
   // ---------------------------------------------------------------- 주간 브리핑 (첫 화면)
   let briefPoll = null;
   function renderBrief(b) {
     const box = $("#home-brief");
-    if (!b || !b.no) { box.hidden = true; $("#latest").hidden = false; return; }
+    if (!b || !b.no) { box.hidden = true; return; }
     box.hidden = false;
-    $("#latest").hidden = true;  // 같은 회차 결과가 겹치지 않게
     const r1 = b.rank1, bt = r1.by_type, sh = b.shape, ai = b.ai || {};
     const facts = [
       r1.winners ? `1등 <b>${r1.winners}명</b> · 1인당 ${won(r1.amount)}(세전) / 세후 약 ${won(r1.amount_net)}` : "1등 당첨자 없음 — 1등 상금 이월",
@@ -814,23 +846,22 @@
     } else {
       const why = ai.status === "rejected" ? "숫자 검사를 통과하지 못해 싣지 않았습니다"
         : ai.reason ? "LM Studio 에 연결하지 못했습니다" : "아직 만들지 않았습니다";
-      aiHTML = `<div class="brief-ai"><span class="lbl">AI 요약</span><span class="small muted">${why}. 아래 사실은 코드가 계산한 값입니다.</span>
+      aiHTML = `<div class="brief-ai"><span class="lbl">AI 요약</span><span class="small muted">${why}. '자세히'의 사실은 코드가 계산한 값입니다.</span>
         <button class="btn sm" id="brief-regen" style="margin-left:8px">다시 만들기</button></div>`;
     }
     const my = b.my;
     box.innerHTML = `
-      <div class="brief-head">
-        <div><div class="small muted">이번 주 브리핑 · ${esc(b.date)} 추첨</div><h2 style="margin:2px 0 0">${b.no}회 결과</h2></div>
-        ${balls(b.nums, b.bonus)}
-      </div>
+      <h2 style="margin:0 0 4px">${b.no}회 브리핑</h2>
       ${aiHTML}
-      <ul class="brief-facts">${facts.map((f) => `<li>${f}</li>`).join("")}</ul>
+      <details class="brief-more" data-fold="brief"><summary>이번 회차 사실 자세히 (코드 계산)</summary>
+        <ul class="brief-facts">${facts.map((f) => `<li>${f}</li>`).join("")}</ul></details>
       ${my ? `<div class="callout info small" style="margin-top:10px">내 구매: ${my.games}게임 중 ${my.wins}게임 당첨 · 받은 돈 ${won(my.won)} / 쓴 돈 ${won(my.cost)} · 가장 많이 맞힌 것 ${my.best}개</div>` : ""}
       <div class="brief-picks">
-        <div class="small muted" style="margin-bottom:6px">다음 추첨 <b>${b.next.no}회 · ${esc(b.next.date)}(토)</b> — 이번 주 비인기 추천(당첨 확률은 모두 같음)</div>
+        <div class="small muted" style="margin-bottom:6px"><b>${b.next.no}회 비인기 추천</b> — 당첨 확률은 모두 같고, 당첨되면 나눠 가질 사람이 적은 조합</div>
         ${b.picks.map((p, i) => `<div class="tcard-row"><span class="lbl">${String.fromCharCode(65 + i)}</span>${balls(p, null, "sm")}${addBtn([p], "담기")}</div>`).join("")}
         <div style="margin-top:6px">${addBtn(b.picks, `${b.picks.length}게임 모두 담기`)}</div>
       </div>`;
+    bindFolds(box);
     const regen = $("#brief-regen");
     if (regen) regen.addEventListener("click", async () => {
       regen.disabled = true;
