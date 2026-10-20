@@ -38,6 +38,20 @@
   작은 모델(4B 급)은 통계를 잘못 읽는 경우가 있어 코드가 결론 문장을 미리 만들어 줍니다.
 - 모든 요청에 `reasoning_effort: "none"`(생각 끄기)을 보내고, 모델이 거절하면 빼고 다시 보냅니다.
 
+## 모델 고르기 (자동 채점)
+
+사이트를 켠 상태에서 이 폴더의 터미널에서 실행합니다. 시험지 24문항(기능 사용·연구 출처·정직성·기타)을 모델마다 묻고,
+정답(공식 자료로 코드가 계산)과 비교해 점수를 매깁니다. 질문은 읽기 전용이라 구매 기록을 바꾸지 않습니다.
+
+```bash
+python3 model_eval.py              # LM Studio 에 로드된 모델만 (윈도우는 python)
+python3 model_eval.py --all        # 설치된 모든 대화 모델 — 큰 모델을 차례로 불러오니 시간·메모리 주의
+python3 model_eval.py --models "qwen/qwen3.6-27b,google/gemma-4-31b"
+```
+
+결과는 `data/model_eval.json`(컴퓨터마다 따로)에 저장되고, AI 상담 화면의 **모델 성적표**와 모델 목록의 ★로 보입니다.
+1등 모델은 주간 브리핑의 기본 모델이 됩니다. 맥(M5 Pro Max 64GB)에서는 Qwen 27B·35B-A3B, Gemma 4 12B/26B/31B 를 `--all` 로 비교해 보세요.
+
 ## 자료
 
 - 출처: 동행복권 공식 조회 `https://www.dhlottery.co.kr/lt645/selectPstLt645Info.do?srchLtEpsd=all`

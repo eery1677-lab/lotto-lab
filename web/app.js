@@ -486,8 +486,10 @@
       if (!ms.length) throw new Error("모델 없음");
       ms.sort((a, b) => (b.loaded - a.loaded) || a.id.localeCompare(b.id));
       const saved = store.get("model", "");
-      sel.innerHTML = ms.map((m) => `<option value="${esc(m.id)}">${m.loaded ? "● " : "○ "}${esc(m.id)}${m.ctx ? ` (${Math.round(m.ctx / 1024)}K)` : ""}</option>`).join("");
-      sel.value = ms.some((m) => m.id === saved) ? saved : (ms.find((m) => m.loaded) || ms[0]).id;
+      const best = EV && EV.best;
+      sel.innerHTML = ms.map((m) => `<option value="${esc(m.id)}">${m.id === best ? "★ " : ""}${m.loaded ? "● " : "○ "}${esc(m.id)}${m.ctx ? ` (${Math.round(m.ctx / 1024)}K)` : ""}</option>`).join("");
+      sel.value = ms.some((m) => m.id === saved) ? saved
+        : ms.some((m) => m.id === best) ? best : (ms.find((m) => m.loaded) || ms[0]).id;
       dot.className = "dot ok";
       dot.title = "LM Studio 연결됨 (● = 로드된 모델, ○ 는 고르면 LM Studio 가 불러옴)";
     } catch (e) {
@@ -496,10 +498,36 @@
       dot.title = "LM Studio 를 켜고 Developer 탭에서 Status: Running 인지 확인하세요";
     }
   }
-  function initChat() {
+  // 모델 성적표 (python model_eval.py 결과, 컴퓨터마다 다름)
+  let EV = null;
+  function renderEval() {
+    const p = $("#eval-panel");
+    if (!EV || !EV.models || !EV.models.length) {
+      p.innerHTML = `<div class="small">아직 채점 결과가 없습니다. 사이트를 켠 상태에서 이 폴더의 터미널에 <code>python model_eval.py</code> (맥: <code>python3 model_eval.py</code>)를 실행하면
+        로드된 모델들을 시험지 24문항으로 채점해 여기에 보여 줍니다.</div>`;
+      return;
+    }
+    const pct = (v) => (v == null ? "-" : `${v}`);
+    p.innerHTML = `<h3 style="margin:0 0 6px">모델 성적표 <span class="small muted">· ${esc(EV.date)} · ${EV.questions}문항 · 이 컴퓨터 기준</span></h3>
+      <div class="tbl-wrap"><table class="tbl">
+        <tr><th>모델</th><th class="num">종합</th><th class="num">도구</th><th class="num">내용</th><th class="num">정직</th><th class="num">숫자</th><th class="num">호칭</th><th class="num">평균 시간</th></tr>
+        ${EV.models.map((m) => `<tr${m.model === EV.best ? ' class="base"' : ""}><td>${m.model === EV.best ? "★ " : ""}${esc(m.model)}</td>
+          <td class="num"><b>${m.score}</b></td><td class="num">${pct(m.tool)}</td><td class="num">${pct(m.content)}</td><td class="num">${pct(m.honest)}</td>
+          <td class="num">${pct(m.numbers)}</td><td class="num">${pct(m.honorific)}</td><td class="num">${m.avg_sec ?? "-"}초</td></tr>`).join("")}
+      </table></div>
+      <div class="note">도구 = 맞는 기능을 불렀나 · 내용 = 정답 숫자/출처가 답에 있나 · 정직 = 금지 표현이 없나 · 숫자 = 자료에 없는 숫자가 없나 · 호칭 = "대장님". ★ 모델이 주간 브리핑의 기본 모델입니다.</div>`;
+  }
+  async function loadEval() {
+    try { EV = await api("/api/model-eval"); } catch (e) { EV = null; }
+    renderEval();
+  }
+  $("#eval-toggle").addEventListener("click", () => { $("#eval-panel").hidden = !$("#eval-panel").hidden; });
+
+  async function initChat() {
     if (chat.inited) return;
     chat.inited = true;
     $("#lms-base").value = store.get("lms_base", "http://127.0.0.1:1234");
+    await loadEval();
     loadModels();
     try { chat.history = JSON.parse(store.get("chat", "[]")).slice(-20); } catch (e) { chat.history = []; }
     if (!chat.history.length) {

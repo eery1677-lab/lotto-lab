@@ -206,7 +206,9 @@
             <input type="text" id="lms-base" value="http://127.0.0.1:1234" style="width:210px" title="LM Studio 주소">
             <button class="btn sm" id="lms-refresh">다시 연결</button>
             <button class="btn sm" id="chat-clear">대화 지우기</button>
+            <button class="btn sm" id="eval-toggle">모델 성적표</button>
           </div>
+          <div class="card soft" id="eval-panel" hidden style="margin-bottom:10px"></div>
           <div class="callout ai small">이 컴퓨터의 LM Studio 로만 동작합니다(인터넷으로 나가지 않음). AI 는 코드가 계산한 숫자만 쓰도록 지시되어 있고, 자료에 없는 숫자를 쓰면 답 아래에 표시됩니다.</div>
         </div>
         <div class="chat-log" id="chat-log"></div>
@@ -301,6 +303,6 @@
   </main>
 </div>
 <div class="toast" id="toast"></div>
-<script src="app.js?v=12"></script>
+<script src="app.js?v=13"></script>
 </body>
 </html>

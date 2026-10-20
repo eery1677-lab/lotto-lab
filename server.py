@@ -83,6 +83,26 @@ def refresh(force=False):
             _state["updating"] = False
 
 
+_ctx_cache = {}
+
+
+def model_ctx(base, model):
+    """LM Studio 에 로드된 문맥 길이(30초 캐시). 모르면 None."""
+    now = time.time()
+    hit = _ctx_cache.get((base, model))
+    if hit and now - hit[0] < 30:
+        return hit[1]
+    ctx = None
+    try:
+        for m in lms_models(base):
+            if m["id"] == model and m["loaded"]:
+                ctx = m["ctx"]
+    except Exception:
+        pass
+    _ctx_cache[(base, model)] = (now, ctx)
+    return ctx
+
+
 def pick_model():
     """브리핑용 LM Studio 모델: AI 상담에서 마지막으로 쓴 것, 없으면 로드된 첫 모델."""
     base, model = briefing.lms_choice()
@@ -313,6 +333,12 @@ class Handler(BaseHTTPRequestHandler):
             b["my"] = briefing.my_result(a, b["no"])
             b["ai_running"] = briefing.is_running(b["no"])
             return self._json(b)
+        if path == "/api/model-eval":
+            ev = briefing._read(os.path.join(lotto_data.DATA_DIR, "model_eval.json"))
+            if not ev:
+                return self._json({"models": [], "best": None})
+            slim = dict(ev, models=[{k: v for k, v in m.items() if k != "rows"} for m in ev["models"]])
+            return self._json(slim)
         if path == "/api/tickets":
             a = analyzer()
             return self._json(tickets.report(a.draws, a.draws[-1]["no"] + 1))
@@ -446,8 +472,12 @@ class Handler(BaseHTTPRequestHandler):
             return facts, SYSTEM_PROMPT.format(facts=facts) + (TOOL_RULES if tools_on else "")
 
         facts, sys_text = system(want_tools)
-        convo = [{"role": "system", "content": sys_text}] + [{"role": m["role"], "content": str(m["content"])[:4000]} for m in msgs]
-        payload = {"model": body.get("model") or "", "temperature": 0.3, "max_tokens": 1500}
+        # 문맥이 작게 로드된 모델(예: 다른 앱이 8K 로 다시 불러온 경우)은 지시문·자료만 약 4,100토큰이라 대화를 줄인다
+        ctx = model_ctx(base, body.get("model") or "")
+        small = bool(ctx) and ctx <= 16384
+        keep, cut = (4, 1200) if small else (12, 4000)
+        convo = [{"role": "system", "content": sys_text}] + [{"role": m["role"], "content": str(m["content"])[:cut]} for m in msgs[-keep:]]
+        payload = {"model": body.get("model") or "", "temperature": 0.3, "max_tokens": 900 if small else 1500}
         first = {}
         if want_tools:
             force = forced_tool(question)

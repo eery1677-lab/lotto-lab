@@ -80,7 +80,7 @@ def banned_phrases(answer):
     found = []
     for rx, why in BANNED:
         for m in rx.finditer(answer):
-            after = answer[m.end(): m.end() + 20]
+            after = answer[m.end(): m.end() + 30]
             before = answer[max(0, m.start() - 12): m.start()]
             if NEGATION.search(after) or re.search(r"(않|없|아니)", before):
                 continue
