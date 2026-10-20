@@ -207,7 +207,7 @@
     if (seg.id === "gen-mode") $("#gen-strength-wrap").style.display = b.dataset.v === "random" ? "none" : "";
   }));
   let lastCombos = [];
-  function comboHTML(c, i) {
+  function comboHTML(c, i, extra) {
     const pct = Math.min(100, (c.popularity / 1.3) * 100);
     const gain = c.expected_rank1 / c.expected_rank1_avg - 1;
     return `<div class="combo">
@@ -221,57 +221,108 @@
         <div>합계 ${c.sum} · 홀수 ${c.odd}개${c.past4 ? ` · <span style="color:var(--warn)">과거 1등과 4개 이상 같음</span>` : ""}</div>
         ${c.known_patterns && c.known_patterns.length ? `<div style="color:var(--warn)">⚠️ 알려진 인기 모양(${c.known_patterns.map(esc).join(", ")}) — 당첨번호로 거의 안 나와 위 계산에 반영되지 못합니다. 해외 연구상 이런 모양은 수천 명이 같이 사므로 실제로는 훨씬 많은 사람과 나눌 수 있습니다.</div>` : ""}
       </div>
-      ${i != null ? `<button class="btn sm" data-copy="${c.nums.join(" ")}">복사</button>` : ""}
+      ${i != null ? `<div class="combo-btns"><button class="btn sm" data-copy="${c.nums.join(" ")}">복사</button>${extra || ""}</div>` : ""}
     </div>`;
   }
-  function renderGenResult(res) {
-    $("#gen-result").innerHTML = res.combos.map(comboHTML).join("") +
-      `<div class="note">당첨 확률은 모든 게임이 1/8,145,060 으로 같습니다. 기대 수령액은 최근 1년 평균 1등 총상금과 판매량 기준 추정치이고, 평균 조합은 세전 ${won(res.combos[0].expected_rank1_avg)} / 세후 ${won(res.combos[0].expected_rank1_net_avg)}입니다. 세후는 200만원 초과 시 3억원까지 22%, 초과분 33%(지방세 포함)를 뺀 금액입니다.</div>`;
-    $$("[data-copy]", $("#gen-result")).forEach((b) => b.addEventListener("click", () => copy(b.dataset.copy)));
-    $("#gen-copy").disabled = false;
-    $("#gen-save").disabled = false;
+  // ---- 한 게임씩 뽑기
+  const games = [];            // 이번에 뽑은 게임들
+  const MAX_GAMES = 20;
+  const letter = (i) => String.fromCharCode(65 + i);
+  let busyGen = false;
+  function renderGames(fresh) {
+    lastCombos = games;
+    const box = $("#gen-result");
+    if (!games.length) {
+      box.innerHTML = `<div class="muted">아직 뽑은 게임이 없습니다. 위의 ‘번호 뽑기’를 눌러 한 게임씩 뽑아 보세요.</div>`;
+    } else {
+      const g0 = games[0];
+      box.innerHTML = games.map((c, i) => `<div class="game-wrap${fresh && i === games.length - 1 ? " fresh" : ""}">${comboHTML(c, i, `<button class="btn sm" data-drop="${i}">빼기</button>`)}</div>`).join("") +
+        `<div class="note">당첨 확률은 모든 게임이 1/8,145,060 으로 같습니다. 평균 조합의 1등 기대 수령액은 세전 ${won(g0.expected_rank1_avg)} / 세후 ${won(g0.expected_rank1_net_avg)}이고, 세후는 200만원 초과 시 3억원까지 22%, 초과분 33%(지방세 포함)를 뺀 금액입니다.</div>`;
+      $$("[data-copy]", box).forEach((b) => b.addEventListener("click", () => copy(b.dataset.copy)));
+      $$("[data-drop]", box).forEach((b) => b.addEventListener("click", () => { games.splice(+b.dataset.drop, 1); renderGames(); updateDrawBtn(); }));
+    }
+    $("#gen-copy").disabled = $("#gen-save").disabled = $("#gen-clear").disabled = !games.length;
+    $("#games-count").textContent = games.length ? `· ${games.length}게임` : "";
   }
-  // 추첨기 연출 켜기/끄기(브라우저 기억)
-  const animBox = $("#gen-anim");
+  function updateDrawBtn() {
+    const b = $("#gen-btn");
+    b.textContent = games.length >= MAX_GAMES ? "더 뽑으려면 게임을 지워 주세요" : `🎱 번호 뽑기 (${letter(games.length)} 게임)`;
+    b.disabled = busyGen || games.length >= MAX_GAMES;
+  }
+  // 추첨기 연출·소리 켜기/끄기(브라우저 기억)
+  const animBox = $("#gen-anim"), soundBox = $("#gen-sound");
   animBox.checked = store.get("gen_anim", "1") === "1";
-  function syncMachineCard() { $("#machine-card").hidden = !animBox.checked; }
-  animBox.addEventListener("change", () => { store.set("gen_anim", animBox.checked ? "1" : "0"); syncMachineCard(); });
-  syncMachineCard();
+  soundBox.checked = store.get("gen_sound", "0") === "1";
+  function syncMachine() {
+    $("#machine").style.display = animBox.checked ? "" : "none";
+    soundBox.disabled = !animBox.checked;
+    if (window.LottoMachine) window.LottoMachine.setSound(animBox.checked && soundBox.checked);
+  }
+  animBox.addEventListener("change", () => { store.set("gen_anim", animBox.checked ? "1" : "0"); syncMachine(); });
+  soundBox.addEventListener("change", () => {
+    store.set("gen_sound", soundBox.checked ? "1" : "0"); syncMachine();
+    if (soundBox.checked) toast("소리를 켰습니다 — 번호를 뽑아 보세요");
+  });
   if (window.LottoMachine) window.LottoMachine.init($("#machine"));
+  syncMachine();
   $("#machine-skip").addEventListener("click", () => window.LottoMachine.skip());
 
-  $("#gen-btn").addEventListener("click", async () => {
-    const btn = $("#gen-btn");
-    btn.disabled = true;
+  async function drawOne() {
+    if (busyGen) return;
+    if (games.length >= MAX_GAMES) return toast(`한 번에 ${MAX_GAMES}게임까지 뽑을 수 있어요`);
+    busyGen = true;
+    const status = $("#machine-status"), skip = $("#machine-skip");
+    updateDrawBtn();
+    let pending = false;
     try {
-      const res = await api("/api/generate", {
-        count: +segValue("gen-count"), mode: segValue("gen-mode"), strength: +segValue("gen-strength"),
-      });
-      lastCombos = res.combos;
-      const M = window.LottoMachine;
-      const status = $("#machine-status"), skip = $("#machine-skip");
+      let combo = null;
+      for (let t = 0; t < 4 && !combo; t++) {   // 같은 번호가 이미 있으면 다시
+        const res = await api("/api/generate", { count: 1, mode: segValue("gen-mode"), strength: +segValue("gen-strength") });
+        if (!games.some((g) => g.nums.join() === res.combos[0].nums.join())) combo = res.combos[0];
+      }
+      if (!combo) { toast("같은 조합만 나왔어요. 다시 눌러 주세요"); return; }
+      const idx = games.length, M = window.LottoMachine;
       const done = () => {
+        games.push(combo);
         skip.hidden = true;
-        status.textContent = res.combos.length > 1 ? `A 게임을 뽑았습니다. 나머지 ${res.combos.length - 1}게임은 같은 방식으로 이미 정해져 아래에 있습니다.` : "A 게임을 뽑았습니다.";
-        renderGenResult(res);
-        btn.disabled = false;
-        $("#gen-result").scrollIntoView({ behavior: "smooth", block: "nearest" });
+        status.textContent = `${letter(idx)} 게임을 뽑았습니다! 계속 뽑거나, 마음에 안 들면 ‘빼기’로 지우세요.`;
+        busyGen = false;
+        renderGames(true); updateDrawBtn();
+        const fresh = $("#gen-result .game-wrap.fresh");
+        if (fresh) fresh.scrollIntoView({ behavior: "smooth", block: "nearest" });
       };
-      if (animBox.checked && M && M.play(res.combos[0].nums, {
-        onBall: (i, total, n) => { status.textContent = `A 게임 추첨 중… ${i} / ${total}번째 공: ${n}번`; },
+      if (animBox.checked && M && M.play(combo.nums, {
+        onBall: (i, total, n) => { status.textContent = `${letter(idx)} 게임 추첨 중… ${i} / ${total}번째 공: ${n}번`; },
         onDone: done,
       })) {
-        $("#gen-result").innerHTML = `<div class="muted">추첨기가 A 게임의 공을 꺼내는 중입니다…</div>`;
-        $("#gen-copy").disabled = true; $("#gen-save").disabled = true;
-        status.textContent = "공을 섞는 중…";
-        skip.hidden = false;
-        $("#machine-card").scrollIntoView({ behavior: "smooth", block: "nearest" });
-        return;   // 끝나면 done() 이 결과를 보여 주고 버튼을 다시 켠다
+        pending = true; skip.hidden = false;
+        status.textContent = `${letter(idx)} 게임 — 공을 섞는 중…`;
+        return;
       }
-      renderGenResult(res);
+      done();   // 연출 없이 바로
     } catch (e) { toast(e.message); }
-    btn.disabled = false;
+    finally { if (!pending) { busyGen = false; updateDrawBtn(); } }
+  }
+  $("#gen-btn").addEventListener("click", drawOne);
+  $("#gen-bulk").addEventListener("click", async () => {
+    if (busyGen) return;
+    const room = MAX_GAMES - games.length;
+    if (room <= 0) return toast(`한 번에 ${MAX_GAMES}게임까지 뽑을 수 있어요`);
+    try {
+      const res = await api("/api/generate", { count: Math.min(5, room), mode: segValue("gen-mode"), strength: +segValue("gen-strength") });
+      let added = 0;
+      res.combos.forEach((c) => { if (!games.some((g) => g.nums.join() === c.nums.join())) { games.push(c); added++; } });
+      renderGames(false); updateDrawBtn();
+      $("#machine-status").textContent = `${added}게임을 한꺼번에 추가했습니다(연출 없음).`;
+    } catch (e) { toast(e.message); }
   });
+  $("#gen-clear").addEventListener("click", () => {
+    if (busyGen) return;
+    games.length = 0; renderGames(); updateDrawBtn();
+    if (window.LottoMachine) window.LottoMachine.reset();
+    $("#machine-status").textContent = "‘번호 뽑기’를 누르면 추첨기가 한 게임(공 6개)을 꺼냅니다.";
+  });
+  renderGames();
   $("#gen-copy").addEventListener("click", () => copy(lastCombos.map((c, i) => `${String.fromCharCode(65 + i)}: ${c.nums.join(" ")}`).join("\n")));
 
   $("#gen-save").addEventListener("click", async () => {

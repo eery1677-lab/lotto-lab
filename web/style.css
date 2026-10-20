@@ -327,3 +327,20 @@ code { font-size: 13px; background: var(--panel-2); border: 1px solid var(--line
 .machine-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; min-height: 30px; }
 .chk { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--muted); cursor: pointer; padding: 0 4px; }
 .chk input { width: 16px; height: 16px; accent-color: var(--accent); }
+
+/* ---------- 추첨기 무대(항상 어두운 무대) */
+.machine-card { background: radial-gradient(130% 100% at 50% 0%, #26356a 0%, #141c3c 55%, #0a0f24 100%); border-color: #2c3a70; color: #cbd5e8; padding: 16px 16px 14px; overflow: hidden; }
+.machine-card .small, .machine-card .note { color: #a9b8d8; }
+.machine-card .btn:not(.gold) { background: #1b2750; border-color: #34437a; color: #e2e8f6; }
+.machine-card .btn:not(.gold):hover { background: #243364; }
+.machine-card .chk { color: #b7c4e2; }
+#machine { aspect-ratio: 560 / 500; }
+.machine-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px 16px; margin: 10px 0 6px; }
+.btn.gold { background: linear-gradient(#ffe066, #ffb300); border-color: #e09b00; color: #3b2a00; font-size: 17px; font-weight: 800; padding: 12px 26px; border-radius: 14px; box-shadow: 0 4px 20px rgba(255,190,0,.38), inset 0 1px 0 rgba(255,255,255,.6); }
+.btn.gold:hover { filter: brightness(1.07); background: linear-gradient(#ffe066, #ffb300); }
+.btn.gold:active { transform: translateY(1px); }
+.btn.gold:disabled { opacity: .6; filter: grayscale(.3); }
+.games-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.combo-btns { display: grid; gap: 6px; justify-items: end; }
+.game-wrap.fresh { animation: fresh 1.4s ease; border-radius: 12px; }
+@keyframes fresh { 0% { background: var(--accent-soft); box-shadow: 0 0 0 3px var(--accent-soft); } 100% { background: transparent; box-shadow: 0 0 0 3px transparent; } }
