@@ -661,10 +661,16 @@
   document.addEventListener("click", (e) => { if (!$("#chip-pop").hidden && !e.target.closest("#chip-pop, #chip-btn")) closePop(); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePop(); });
   $("#info-toggle").addEventListener("click", () => { $("#chat-info").hidden = !$("#chat-info").hidden; });
-  $("#chat-log").addEventListener("click", (e) => { const c = e.target.closest(".chips-welcome .chip"); if (c) send(c.textContent); });
+  $("#chat-log").addEventListener("click", (e) => { const c = e.target.closest(".chips-welcome .chip:not(.chip-toggle)"); if (c) send(c.textContent); });
   function showWelcomeChips() {
     const box = document.createElement("div"); box.className = "chips chips-welcome";
     $$("#chips .chip").forEach((c) => box.appendChild(c.cloneNode(true)));
+    if (window.innerWidth <= 820 && box.children.length > 3) {         // 휴대폰: 처음 3개만 보이고 나머지는 눌러서 펼친다
+      const more = [...box.children].slice(3); more.forEach((c) => { c.classList.add("chip-more"); c.hidden = true; });
+      const b = document.createElement("button"); b.className = "chip chip-toggle"; b.textContent = `더 보기 ▾ (${more.length})`;
+      b.addEventListener("click", (e) => { e.stopPropagation(); const open = more[0].hidden; more.forEach((c) => { c.hidden = !open; }); b.textContent = open ? "접기 ▴" : `더 보기 ▾ (${more.length})`; });
+      box.appendChild(b);
+    }
     $("#chat-log").appendChild(box);
   }
   $("#chat-text").addEventListener("keydown", (e) => {
@@ -809,10 +815,17 @@
   // ---- 채팅 쪽 로또(머리의 작은 것 + 큰 화면의 오른쪽 큰 것)를 한꺼번에 다루는 도우미
   const chatPets = () => [Pet.chat, Pet.big, Roam.on && Pet.roam].filter(Boolean);
   const SAY = { normal: "궁금한 걸 물어보세요, 대장님!", happy: "조회했어요!", think: "자료를 확인하고 있어요…", wink: "추천 조합을 뽑았어요!", surprise: "앗, 이건 인기 모양이에요!", firm: "예측은 안 되지만, 사실은 알려 드려요.", worry: "앗, 문제가 생겼어요." };
-  const Roam = { on: false, x: 0, y: 0, W: 150, H: 172, timer: 0, say: 0, talking: false, snd: true, ask: false };
+  function roamSize() {
+    const small = window.innerWidth < 600; Roam.small = small; Roam.W = small ? 100 : 150; Roam.H = small ? 115 : 172;
+    for (const id of ["#lotto-roam", "#lotto-roam2"]) { const e = $(id); if (e) { e.style.width = Roam.W + "px"; e.style.height = Roam.H + "px"; } }
+  }
+  function roamBounds() {
+    return { maxX: Math.max(9, innerWidth - Roam.W - 8), minY: Roam.small ? 66 : 56, maxY: Math.max(67, innerHeight - Roam.H - 8 - (Roam.small ? 74 : 0)) };
+  }
+  const Roam = { on: false, small: false, x: 0, y: 0, W: 150, H: 172, timer: 0, say: 0, talking: false, snd: true, ask: false };
   function roamSay(text, ms, keep) {
     const el = $("#roam-say"); if (!el || !Roam.on || !text) return;
-    const top = $("#roam-top"); top.className = "roam-top" + (Roam.x < 140 ? " left" : Roam.x > innerWidth - 320 ? " right" : "") + (Roam.y < 130 ? " below" : "");
+    const top = $("#roam-top"); top.className = "roam-top" + (Roam.small ? (Roam.x + Roam.W / 2 < innerWidth / 2 ? " left" : " right") : Roam.x < 140 ? " left" : Roam.x > innerWidth - 320 ? " right" : "") + (Roam.y < (Roam.small ? 100 : 130) ? " below" : "");
     if (!keep || !el.classList.contains("show")) { el.className = "roam-say"; void el.offsetHeight; el.classList.add("show"); }
     el.textContent = text;
     clearTimeout(Roam.say); Roam.say = setTimeout(() => el.classList.remove("show"), ms || Math.min(9000, 2800 + text.length * 70));
@@ -943,7 +956,7 @@
       Pet.big = window.Lotto3D.mount($("#lotto-big"), { onTap: tap(() => Pet.big) });
       const m0 = Pet.machine, fwd = (f) => (...a) => { m0[f](...a); if (Roam.on && Pet.roam && f !== "sleep") Pet.roam[f](...a); };
       Pet.machine = m0 && { setMood: fwd("setMood"), hop: fwd("hop"), sleep: fwd("sleep"), get mood() { return m0.mood; } };
-      setRoam(store.get("roam", (innerWidth >= 900 && !matchMedia("(prefers-reduced-motion: reduce)").matches) ? "1" : "0") === "1");
+      setRoam(store.get("roam", !matchMedia("(prefers-reduced-motion: reduce)").matches ? "1" : "0") === "1");
     } catch (e) { /* 실시간 3D 만 포기 */ }
   }
   $("#brand-lotto").innerHTML = avatar("normal");
@@ -989,25 +1002,25 @@
   }
   function roamPlace(x, y) { Roam.x = x; Roam.y = y; $("#lotto-roam").style.transform = `translate(${x}px,${y}px)`; }
   function startHop() {
-    const maxX = Math.max(9, innerWidth - Roam.W - 8), maxY = Math.max(57, innerHeight - Roam.H - 8);
-    const wd = Hop.mode === "waddle", leap = !wd && Math.random() < 0.15, dist = wd ? rnd(140, 300) : leap ? rnd(260, 400) : rnd(80, 170);
+    const { maxX, maxY, minY } = roamBounds(), K = Roam.W / 150;
+    const wd = Hop.mode === "waddle", leap = !wd && Math.random() < 0.15, dist = K * (wd ? rnd(140, 300) : leap ? rnd(260, 400) : rnd(80, 170));
     let tx = Roam.x, ty = Roam.y, ok = false;
     for (let i = 0; i < 10 && !ok; i++) {
       const hd = Hop.heading + (i < 4 ? rnd(-(wd ? 0.7 : 1.1), wd ? 0.7 : 1.1) : rnd(-3.14, 3.14));
       tx = Roam.x + Math.cos(hd) * dist; ty = Roam.y + Math.sin(hd) * dist * 0.75;
-      if (tx >= 8 && tx <= maxX && ty >= 56 && ty <= maxY) { ok = true; Hop.heading = hd; }
+      if (tx >= 8 && tx <= maxX && ty >= minY && ty <= maxY) { ok = true; Hop.heading = hd; }
     }
-    if (!ok) { tx = Math.max(8, Math.min(maxX, tx)); ty = Math.max(56, Math.min(maxY, ty)); Hop.heading = Math.atan2(ty - Roam.y + (innerHeight / 2 - ty) * 0.2, tx - Roam.x + (innerWidth / 2 - tx) * 0.2); }
+    if (!ok) { tx = Math.max(8, Math.min(maxX, tx)); ty = Math.max(minY, Math.min(maxY, ty)); Hop.heading = Math.atan2(ty - Roam.y + (innerHeight / 2 - ty) * 0.2, tx - Roam.x + (innerWidth / 2 - tx) * 0.2); }
     Hop.fx = Roam.x; Hop.fy = Roam.y; Hop.tx = tx; Hop.ty = ty; Hop.t = 0;
     const d = Math.hypot(tx - Hop.fx, ty - Hop.fy);
-    Hop.dur = wd ? d / 85 : 0.34 + d / 650; Hop.h = wd ? 0 : (leap ? 90 : 28) + d * 0.22 + rnd(0, 14);
+    Hop.dur = wd ? d / (85 * K) : 0.34 + d / (650 * K); Hop.h = wd ? 0 : ((leap ? 90 : 28) + d * 0.22 + rnd(0, 14)) * Math.max(0.6, K);
     Pet.roam.walk(true, tx >= Hop.fx ? 1 : -1, Hop.mode);
   }
   function roamLoop(ts) {
     Hop.raf = 0; if (!Roam.on || !Pet.roam) return;
     Hop.raf = requestAnimationFrame(roamLoop);
     const dt = Hop.last ? Math.min(0.05, (ts - Hop.last) / 1000) : 0; Hop.last = ts;
-    if (document.hidden || window.innerWidth < 600) return;
+    if (document.hidden) return;
     girlFollow(dt, ts);
     const el = $("#lotto-roam"), body = $("#roam-body");
     if (Hop.dur > 0) {
@@ -1046,7 +1059,7 @@
   const GIRL_LINES = ["대장님, 오늘도 화이팅이에요!", "로또야, 같이 가요~", "번호는 재미로만 즐겨요, 대장님!", "저도 통계는 좀 알아요, 헤헤.", "로또는 제가 지켜요!", "대장님, 물 한 잔 드세요~"];
   function girlSay(text, ms, quiet) {
     const el = $("#roam2-say"); if (!el || !text) return;
-    $("#roam2-top").className = "roam-top" + (Girl.x < 140 ? " left" : Girl.x > innerWidth - 320 ? " right" : "") + (Girl.y < 130 ? " below" : "");
+    $("#roam2-top").className = "roam-top" + (Roam.small ? (Girl.x + Roam.W / 2 < innerWidth / 2 ? " left" : " right") : Girl.x < 140 ? " left" : Girl.x > innerWidth - 320 ? " right" : "") + (Girl.y < (Roam.small ? 100 : 130) ? " below" : "");
     el.className = "roam-say"; void el.offsetHeight; el.classList.add("show"); el.textContent = text;
     clearTimeout(Girl.say); Girl.say = setTimeout(() => el.classList.remove("show"), ms || 4200);
     if (quiet) return;
@@ -1058,15 +1071,15 @@
   // 멀 때만 뛰고(여유 두고 되돌아옴) 가까우면 아장아장, 도착하면 서서 표정을 짓는다
   function girlFollow(dt, ts) {
     const el = $("#lotto-roam2"); if (!Girl.on || !Pet.girl || el.hidden) return;
-    const maxX = Math.max(9, innerWidth - Roam.W - 8), maxY = Math.max(57, innerHeight - Roam.H - 8);
+    const { maxX, maxY, minY } = roamBounds(), K = Roam.W / 150;
     if (!Girl.side) Girl.side = Girl.x < Roam.x ? -1 : 1;
-    const want = (sd) => Roam.x + sd * 135;
+    const want = (sd) => Roam.x + sd * 135 * K;
     if (want(Girl.side) < 8 || want(Girl.side) > maxX) Girl.side = -Girl.side;        // 자리가 없을 때만 반대편
-    const tx = Math.max(8, Math.min(maxX, want(Girl.side))), ty = Math.max(56, Math.min(maxY, Roam.y + 12));
+    const tx = Math.max(8, Math.min(maxX, want(Girl.side))), ty = Math.max(minY, Math.min(maxY, Roam.y + 12 * K));
     const dx = tx - Girl.x, dy = ty - Girl.y, d = Math.hypot(dx, dy);
     const still = Roam.ask || Roam.talking;
-    if (!Girl.run && d > 300) Girl.run = true; else if (Girl.run && d < 150) Girl.run = false;
-    const goal = still || d < (Girl.moving ? 10 : 42) ? 0 : (Girl.run ? Math.min(340, 80 + d * 1.1) : Math.min(120, 30 + d * 0.9));
+    if (!Girl.run && d > 300 * K) Girl.run = true; else if (Girl.run && d < 150 * K) Girl.run = false;
+    const goal = still || d < (Girl.moving ? 10 : 42) * K ? 0 : K * (Girl.run ? Math.min(340, 80 + d * 1.1) : Math.min(120, 30 + d * 0.9));
     const k = 1 - Math.exp(-(goal > Girl.sp ? 5 : 8) * dt);                           // 가속은 천천히, 감속은 조금 빨리
     Girl.sp += (goal - Girl.sp) * k;
     Girl.moving = Girl.sp > 6;
@@ -1094,7 +1107,7 @@
       Pet.girl = window.Lotto3D.mount($("#roam2-body"), { variant: "girl", onTap: () => { if (!Pet.girl) return; Math.random() < 0.5 ? Pet.girl.hop() : Pet.girl.wave(); girlSay(["안녕하세요, 대장님~!", "저 뽀또예요, 헤헤.", "로또랑 친하게 지내요!"][Math.floor(Math.random() * 3)]); } });
     }
     if (!Pet.girl) { el.hidden = true; return; }
-    if (!Girl.placed) { Girl.x = Math.max(8, Math.min(innerWidth - Roam.W - 8, Roam.x - 140)); Girl.y = Roam.y; Girl.placed = true; el.style.transform = `translate(${Girl.x}px,${Girl.y}px)`; }
+    if (!Girl.placed) { Girl.x = Math.max(8, Math.min(innerWidth - Roam.W - 8, Roam.x - 140 * (Roam.W / 150))); Girl.y = Roam.y; Girl.placed = true; el.style.transform = `translate(${Girl.x}px,${Girl.y}px)`; }
     Girl.nextSay = performance.now() + 3500; setTimeout(() => girlSay("대장님, 안녕하세요~! 저는 뽀또예요."), 400);
   }
   $("#girl-btn").addEventListener("click", () => setGirl(!Girl.on));
@@ -1121,23 +1134,25 @@
   function setRoam(on) {
     Roam.on = on; store.set("roam", on ? "1" : "0");
     document.body.classList.toggle("roam-on", on && !!Pet.big);
-    $("#roam-btn").classList.toggle("on", on); $("#roam-btn").textContent = "로또 돌아다니기: " + (on ? "켬" : "끔");
+    $("#roam-btn").classList.toggle("on", on); $("#roam-btn").textContent = "로또 돌아다니기: " + (on ? "켬" : "끔"); $("#roam-btn2").textContent = "로또·뽀또 돌아다니기: " + (on ? "켬" : "끔");
+    roamSize();
     const el = $("#lotto-roam"); el.hidden = !on; cancelAnimationFrame(Hop.raf); Hop.raf = 0; Hop.last = 0; Hop.dur = 0;
     if (!on) { Pet.roam && Pet.roam.walk(false); setGirl(Girl.on); return; }
     if (!Pet.roam && window.Lotto3D && window.Lotto3D.ok) {
       Pet.roam = window.Lotto3D.mount($("#roam-body"), { onTap: () => { if (!Pet.roam) return; Math.random() < 0.5 ? Pet.roam.hop() : Pet.roam.wave(); popSound(Roam.x); openAsk(!$("#roam-ask").hidden ? false : true); } });
     }
     if (!Pet.roam) { Roam.on = false; el.hidden = true; document.body.classList.remove("roam-on"); return; }
-    roamPlace(Roam.x || innerWidth - Roam.W - 30, Roam.y || innerHeight - Roam.H - 20);
+    roamPlace(Roam.x || innerWidth - Roam.W - 30, Roam.y || roamBounds().maxY);
     Pet.roam.onStep(() => { if (Hop.mode === "waddle") popSound(Roam.x, true); });
     Hop.left = 0; Hop.rest = 1.2; Hop.raf = requestAnimationFrame(roamLoop);
     setGirl(Girl.on);
   }
-  window.addEventListener("resize", () => { if (Roam.on) roamPlace(Math.min(Roam.x, Math.max(0, innerWidth - Roam.W)), Math.min(Roam.y, Math.max(0, innerHeight - Roam.H))); });
+  window.addEventListener("resize", () => { roamSize(); if (Roam.on) { const b = roamBounds(); roamPlace(Math.max(0, Math.min(Roam.x, b.maxX)), Math.max(0, Math.min(Roam.y, b.maxY))); } });
   $("#snd-btn").addEventListener("click", () => { Roam.snd = !Roam.snd; store.set("snd", Roam.snd ? "1" : "0"); $("#snd-btn").classList.toggle("on", Roam.snd); $("#snd-btn").textContent = "통통 소리: " + (Roam.snd ? "켬" : "끔"); if (Roam.snd) popSound(Roam.x); });
   Girl.on = store.get("girl", "1") === "1"; $("#girl-btn").classList.toggle("on", Girl.on); $("#girl-btn").textContent = "뽀또(여자친구): " + (Girl.on ? "함께" : "없음");
   Roam.snd = store.get("snd", "1") === "1"; $("#snd-btn").classList.toggle("on", Roam.snd); $("#snd-btn").textContent = "통통 소리: " + (Roam.snd ? "켬" : "끔");
   $("#roam-btn").addEventListener("click", () => setRoam(!Roam.on));
+  $("#roam-btn2").addEventListener("click", () => setRoam(!Roam.on));
   // ---- 답변 읽어 주기 켜고 끄기
   function setTts(mode) {     // 0 끔 · 1 기기 목소리 · 2 자연스러운(인터넷) 목소리
     Voice.on = mode > 0; Voice.mode = mode || 1; Voice.voice = null; store.set("tts", String(mode));

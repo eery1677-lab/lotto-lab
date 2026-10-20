@@ -424,7 +424,6 @@ main { margin: 0 auto; }
 body.roam-on .lotto-pet, body.roam-on .lotto-chat, body.roam-on .lotto-big { display: none !important; }
 .theme-btn.on { border-color: var(--accent); color: var(--accent); }
 @media (prefers-reduced-motion: reduce) { .lotto-roam { transition: none !important; } }
-@media (max-width: 599px) { .lotto-roam { display: none !important; } body.roam-on .lotto-pet, body.roam-on .lotto-chat { display: block !important; } body.roam-on .lotto-big { display: none !important; } }
 
 /* 돌아다니는 로또의 말풍선(통통 튀며 나타남) + 말 걸기 입력줄 */
 .roam-top { position: absolute; left: 50%; bottom: 100%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; width: max-content; max-width: 300px; margin-bottom: 2px; pointer-events: none; }
@@ -471,4 +470,14 @@ body.roam-on .lotto-pet, body.roam-on .lotto-chat, body.roam-on .lotto-big { dis
   .side { gap: 8px; padding: 10px 12px; }
   .nav-btn { border: 1px solid var(--line); background: var(--panel); border-radius: 12px; padding: 9px 15px; font-size: 14px; box-shadow: 0 1px 2px rgba(15, 23, 42, .06); white-space: nowrap; }
   .nav-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; box-shadow: 0 2px 8px rgba(0, 0, 0, .18); }
+}
+
+/* 휴대폰: 작게 돌아다니고, 말풍선은 작게, 입력줄은 아래 버튼 막대 위로 여유 (2026-10-20) */
+.chip[hidden] { display: none; }
+.chip-toggle { background: var(--panel-2); font-weight: 700; }
+@media (max-width: 599px) {
+  .roam-say { font-size: 13px; max-width: min(240px, 66vw); padding: 7px 11px; }
+  .roam-top { max-width: min(250px, 70vw); }
+  .chat-dock { padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+  .chat-wrap { height: calc(100dvh - 78px); }
 }
