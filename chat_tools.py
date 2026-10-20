@@ -4,6 +4,7 @@ LM Studio(OpenAI 호환)의 tools/tool_calls 형식. 각 도구는 (결과 dict)
 서버는 결과를 AI 에게 넘기는 동시에 화면의 '숫자 검사' 자료에도 붙인다.
 """
 import json
+from datetime import datetime, timedelta
 import re
 
 import knowledge
@@ -109,6 +110,12 @@ def run(a, name, args):
                     return {"오류": f"{args['date']} 에 추첨한 회차가 없습니다(추첨은 토요일)"}
             else:
                 d = draws[-1]
+                info = _draw_info(d)
+                nxt = (datetime.strptime(d["date"], "%Y-%m-%d") + timedelta(days=7)).date()
+                today = datetime.now().date()
+                info["안내"] = (f"가장 최근에 추첨한 {d['no']}회({d['date']}) 결과입니다. 다음 추첨은 {d['no'] + 1}회 {nxt}(토) 20시 35분경"
+                              + (" — 아직 추첨 전입니다." if today <= nxt else " — 결과를 아직 받아 오지 못했습니다(왼쪽 아래 '지금 새 회차 확인')."))
+                return info
             return _draw_info(d)
 
         if name == "number_stats":

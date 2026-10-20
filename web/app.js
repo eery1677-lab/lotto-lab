@@ -505,7 +505,7 @@
     if (!chat.history.length) {
       addMsg("bot", "안녕하세요, 대장님. 로또 확률 연구소 분석 상담가입니다. 당첨 번호를 예측해 드릴 수는 없지만, 실제 자료로 계산한 통계와 ‘나눠 가질 위험이 적은 조합’은 정확하게 알려 드릴 수 있습니다. 무엇이 궁금하세요?");
     } else {
-      chat.history.forEach((m) => addMsg(m.role === "user" ? "user" : "bot", m.content));
+      chat.history.forEach((m) => addMsg(m.role === "user" ? "user" : "bot", m.content, m.cards));
     }
   }
   $("#lms-refresh").addEventListener("click", () => { store.set("lms_base", lmsBase()); loadModels(); });
@@ -586,11 +586,77 @@
     return [...new Set(bad)].slice(0, 8);
   }
 
-  function addMsg(role, content) {
+  // 도구 결과 → 답 아래 카드(공 모양·담기 버튼). 숫자는 도구 결과 그대로(코드 계산값).
+  const CARD_TOOLS = ["generate_numbers", "check_numbers", "get_draw", "find_draws"];
+  function addBtn(games, label) {
+    return `<button class="btn sm" data-add='${esc(JSON.stringify(games))}'>${label}</button>`;
+  }
+  function toolCardHTML(name, r) {
+    if (!r || r["오류"]) return "";
+    const next = S ? `${S.latest.no + 1}회` : "다음 회차";
+    if (name === "generate_numbers" && Array.isArray(r["조합"])) {
+      const games = r["조합"].map((c) => c["번호"]);
+      const avg = r["평균 조합"] || {};
+      return `<div class="tcard">
+        <div class="tcard-h">추천 조합 <span class="muted small">· 당첨 확률은 모두 1/8,145,060 · 담으면 ${next} 구매 기록에 저장</span></div>
+        ${r["조합"].map((c, i) => `<div class="tcard-row">
+          <span class="lbl">${String.fromCharCode(65 + i)}</span>${balls(c["번호"], null, "sm")}
+          <span class="small muted">인기도 ${c["인기도"]} · 1,000원당 ${c["1000원당 기대 환급"]}원 · 1등 세후 ${won(c["세후"])}</span>
+          ${addBtn([c["번호"]], "담기")}</div>`).join("")}
+        <div class="tcard-f"><span class="small muted">평균 조합: 1,000원당 ${avg["1000원당 기대 환급"] ?? "-"}원 · 1등 세후 ${avg["세후"] ? won(avg["세후"]) : "-"}</span>
+          ${addBtn(games, `${games.length}게임 모두 담기`)}</div></div>`;
+    }
+    if (name === "check_numbers" && Array.isArray(r["번호"])) {
+      const pat = Array.isArray(r["알려진 인기 모양"]) ? r["알려진 인기 모양"] : [];
+      return `<div class="tcard">
+        <div class="tcard-h">검사한 번호</div>
+        <div class="tcard-row">${balls(r["번호"], null, "sm")}${addBtn([r["번호"]], "담기")}</div>
+        <div class="small muted">인기도 ${r["인기도"]} · 1등 동반 약 ${r["1등 동반 당첨자"]}명 · 1등 세후 ${won(r["세후"])} · 1,000원당 ${r["1000원당 기대 환급"]}원
+          ${r["과거 1등과 4개 이상 같음"] ? " · <span style='color:var(--warn)'>과거 1등과 4개 이상 같음</span>" : ""}
+          ${pat.length ? ` · <span style='color:var(--warn)'>⚠️ ${pat.map(esc).join(", ")}</span>` : ""}</div></div>`;
+    }
+    if (name === "get_draw" && Array.isArray(r["당첨번호"])) {
+      const first = (r["등수별"] || {})["1등"] || {};
+      const bt = r["1등 구매방식"];
+      return `<div class="tcard">
+        <div class="tcard-h">${r["회차"]}회 <span class="muted small">· ${esc(r["추첨일"])}</span></div>
+        <div class="tcard-row">${balls(r["당첨번호"], r["보너스"], "sm")}</div>
+        <div class="small muted">1등 ${first["당첨자"] ?? "-"}명 · 1인당 ${first["1인당 당첨금(세전)"] ? won(first["1인당 당첨금(세전)"]) : "-"}(세전)
+          ${bt ? ` · 자동 ${bt["자동"]} / 수동 ${bt["수동"]} / 반자동 ${bt["반자동"]}` : ""}</div>
+        ${r["안내"] ? `<div class="small" style="margin-top:4px">${esc(r["안내"])}</div>` : ""}</div>`;
+    }
+    if (name === "find_draws" && Array.isArray(r["최근 회차(최대 15개)"])) {
+      const list = r["최근 회차(최대 15개)"].slice(0, 5);
+      if (!list.length) return "";
+      return `<div class="tcard">
+        <div class="tcard-h">${(r["찾은 번호"] || []).join("·")} — ${r["해당 회차 수"]}회 <span class="muted small">(최근 ${list.length}개)</span></div>
+        ${list.map((d) => `<div class="tcard-row"><span class="small" style="width:56px">${d["회차"]}회</span>${balls(d["당첨번호"], null, "sm")}</div>`).join("")}</div>`;
+    }
+    return "";
+  }
+  function appendCards(el, cards) {
+    const html = (cards || []).map((c) => toolCardHTML(c.name, c.result)).join("");
+    if (!html) return;
+    let box = $(".cards", el);
+    if (!box) { box = document.createElement("div"); box.className = "cards"; el.appendChild(box); }
+    box.insertAdjacentHTML("beforeend", html);
+  }
+  $("#chat-log").addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-add]");
+    if (!b || b.disabled) return;
+    let games;
+    try { games = JSON.parse(b.dataset.add); } catch (err) { return; }
+    b.disabled = true;
+    if (await addTickets(games, "AI 상담")) b.textContent = "담았습니다 ✓";
+    else b.disabled = false;
+  });
+
+  function addMsg(role, content, cards) {
     const el = document.createElement("div");
     el.className = "msg " + role;
     if (role === "user") el.textContent = content;
     else el.innerHTML = `<div class="who">분석 상담가</div><div class="body">${md(content)}</div>`;
+    if (cards) appendCards(el, cards);
     $("#chat-log").appendChild(el);
     $("#chat-log").scrollTop = 1e9;
     return el;
@@ -610,6 +676,7 @@
     chat.busy = true; chat.ctrl = new AbortController();
     $("#chat-send").textContent = "중지";
     let answer = "", facts = "", thinking = false, revised = null, serverCheck = null;
+    const cards = [];
     try {
       const r = await fetch("/api/chat", {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: chat.ctrl.signal,
@@ -638,6 +705,9 @@
             chip.className = "tool-chip" + (j.tool.error ? " err" : "");
             chip.textContent = "🔧 " + j.tool.label + (j.tool.error ? " — " + j.tool.error : "");
             tl.appendChild(chip);
+            if (CARD_TOOLS.includes(j.tool.name)) {
+              try { cards.push({ name: j.tool.name, result: JSON.parse(j.facts_add || "{}") }); } catch (err) { /* 카드 없이 */ }
+            }
             if (!answer) body.innerHTML = `<span class="typing">자료 확인 후 답변 작성 중…</span>`;
             continue;
           }
@@ -684,7 +754,8 @@
         el.appendChild(c);
       }
     }
-    chat.history.push({ role: "assistant", content: answer });
+    appendCards(el, cards);
+    chat.history.push(cards.length ? { role: "assistant", content: answer, cards } : { role: "assistant", content: answer });
     store.set("chat", JSON.stringify(chat.history.slice(-20)));
     chat.busy = false; chat.ctrl = null;
     $("#chat-send").textContent = "보내기";

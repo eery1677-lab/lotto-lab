@@ -271,3 +271,11 @@ code { font-size: 13px; background: var(--panel-2); border: 1px solid var(--line
 .tool-chip.err { background: var(--warn-soft); color: var(--warn); }
 .msg .revised { margin-top: 10px; font-size: 12.5px; background: var(--ai-soft); color: var(--ai); border-radius: 8px; padding: 6px 10px; }
 .msg.bot a { color: var(--accent); word-break: break-all; }
+
+/* ---------- AI 답 안의 카드 */
+.msg .cards { margin-top: 10px; display: grid; gap: 8px; }
+.tcard { border: 1px solid var(--line); background: var(--panel-2); border-radius: 12px; padding: 10px 12px; }
+.tcard-h { font-weight: 700; font-size: 14px; margin-bottom: 6px; }
+.tcard-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 4px 0; }
+.tcard-row .lbl { width: 18px; color: var(--muted); font-size: 13px; }
+.tcard-f { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); }

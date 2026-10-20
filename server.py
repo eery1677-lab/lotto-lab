@@ -156,6 +156,21 @@ def forced_tool(question):
         return "generate_numbers"
     if RESEARCH.search(question):
         return "search_research"
+    # 아래도 gemma-4-e4b 가 도구 없이 "조회했습니다"라고 지어낸 일이 있어 강제한다
+    if re.search(r"(\d{1,2})\s*(번)?\s*(하고|과|와|랑|이랑|,|및)\s*(\d{1,2}).{0,20}(같이|함께|동시|모두)", question):
+        return "find_draws"
+    if re.search(r"(가장|제일|많이|적게|자주|덜).{0,8}(나온|나왔|출현|뽑힌)|순위|top|핫\s*넘버\s*(뭐|알려|목록)", question, re.I):
+        return "top_numbers"
+    if re.search(r"(?<!\d)(\d{1,2})\s*번(은|이|는)?.{0,15}(몇\s*번|몇번|횟수|나왔|안\s*나온|마지막|언제)", question):
+        return "number_stats"
+    if re.search(r"내\s*(구매|기록|성적|번호\s*결과|손익)|구매\s*기록|손익|예산", question):
+        return "my_tickets"
+    if re.search(r"\d\s*(억|만\s*원|원)", question) and re.search(r"세후|세금|실수령|떼고|떼면", question):
+        return "after_tax"
+    if re.search(r"(이번\s*주|지난\s*주|저번\s*주|최신|최근|마지막)\s*(회차)?\s*(로또\s*)?(당첨\s*번호|결과|번호\s*뭐)", question):
+        return "get_draw"
+    if re.search(r"(?<!최근\s)(?<!최근)(\d{1,4})\s*회(차)?\s*(당첨|번호|결과|1등|몇)|(\d{4})[-./년]\s*\d{1,2}[-./월]\s*\d{1,2}", question):
+        return "get_draw"
     return None
 
 

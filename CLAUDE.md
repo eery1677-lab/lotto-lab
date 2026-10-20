@@ -67,6 +67,16 @@
 - `_lms_post` 는 LM Studio 5xx·연결 실패 시 3초·8초 뒤 다시 시도 — 거래처(지아) 앱이 `google/gemma-4-e4b` 를 불러오는 순간 500 이 난 것을 실제로 봤다.
 - 시험(gemma-4-e4b): 미국 사례·AI 예측·만델·영국 연구·1057회·휠링 6개 모두 연구 찾기 + 출처 URL 일치. 1057회를 "예상보다 적었다"고 거꾸로 읽어서 요약을 "약 8배 많음"으로 고쳤다.
 
+## AI 답 안의 카드 · 담기 버튼 (2026-10-20)
+
+- 화면(`app.js` `toolCardHTML`)이 도구 결과(SSE `tool` 이벤트의 `facts_add` JSON)로 카드를 그린다 — 서버 변경 없음.
+  generate_numbers(공·인기도·기대 환급·게임별 '담기'·'모두 담기'), check_numbers(공·경고·'담기'), get_draw(공·자동/수동·다음 추첨 안내), find_draws(최근 5회).
+  '담기'는 `addTickets(games, "AI 상담")` → 다음 회차 구매 기록. 카드는 대화 기록(localStorage `chat`)의 `cards` 로 저장·복원.
+- 도구 강제(`forced_tool`) 확대: 회차·날짜 → get_draw, "N하고 M 같이" → find_draws, 가장 많이/적게 → top_numbers,
+  "N번 몇 번/언제" → number_stats, 내 구매·손익 → my_tickets, 금액+세금 → after_tax, "이번 주/최근 당첨번호" → get_draw(최신 + 다음 추첨 안내).
+  gemma-4-e4b 가 도구 없이 "조회했습니다"라고 지어낸 일이 있어 넣었다. 강제 안 하는 것: 일반 설명 질문(핫넘버 효과 등).
+- 시험: 질문 13개 모두 맞는 도구 호출, '모두 담기'·개별 담기 → 복사본 서버 구매 기록에 정확히 저장, 새로고침 후 카드 복원, 375px 넘침 0.
+
 ## 구매 기록 · 세후 (2026-10-20)
 
 - `tickets.py` + `data/tickets.json`(개인 기록, git 제외). API `/api/tickets`, `/api/tickets/add|delete|budget`. 등수·금액은 그 회차 공식 1인당 당첨금.
