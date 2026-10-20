@@ -415,3 +415,18 @@ main { margin: 0 auto; }
 @media (min-width: 1400px) {
   .lotto-pet { left: auto; right: 100%; top: 10%; width: 240px; margin-right: -26px; }
 }
+
+/* ---------- 화면 안을 돌아다니는 로또 + 소리 (2026-10-20) */
+.lotto-roam { position: fixed; left: 0; top: 0; width: 150px; height: 172px; z-index: 40; pointer-events: none; will-change: transform; }
+.lotto-roam[hidden] { display: none; }
+.roam-body { position: absolute; inset: 0; }
+.roam-body .lotto3d-canvas { pointer-events: auto; }
+.roam-say { position: absolute; left: 50%; bottom: 100%; transform: translate(-50%, 6px); width: max-content; max-width: 240px; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 14px; padding: 8px 12px; font-size: 13px; line-height: 1.45; box-shadow: var(--shadow); opacity: 0; transition: opacity .25s, transform .25s; pointer-events: none; text-align: center; }
+.roam-say.show { opacity: 1; transform: translate(-50%, 0); }
+.roam-say.left { left: 0; transform: translate(0, 6px); } .roam-say.left.show { transform: none; }
+.roam-say.right { left: auto; right: 0; transform: translate(0, 6px); } .roam-say.right.show { transform: none; }
+.roam-say.below { bottom: auto; top: 100%; }
+body.roam-on .lotto-pet, body.roam-on .lotto-chat, body.roam-on .lotto-big { display: none !important; }
+.theme-btn.on { border-color: var(--accent); color: var(--accent); }
+@media (prefers-reduced-motion: reduce) { .lotto-roam { transition: none !important; } }
+@media (max-width: 599px) { .lotto-roam { display: none !important; } body.roam-on .lotto-pet, body.roam-on .lotto-chat { display: block !important; } body.roam-on .lotto-big { display: none !important; } }

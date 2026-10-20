@@ -6,7 +6,7 @@
 <title>로또 확률 연구소</title>
 <link rel="icon" href="icon-64.png" type="image/png">
 <link rel="apple-touch-icon" href="icon-180.png">
-<link rel="stylesheet" href="style.css?v=20">
+<link rel="stylesheet" href="style.css?v=22">
 </head>
 <body>
 <div class="app">
@@ -24,6 +24,8 @@
     <div class="side-foot">
       <div id="data-status">자료 불러오는 중…</div>
       <button class="theme-btn" id="theme-btn">화면 밝기 전환</button>
+      <button class="theme-btn" id="roam-btn">로또 돌아다니기</button>
+      <button class="theme-btn" id="tts-btn">답변 읽어 주기</button>
       <div style="margin-top:10px">도박 고민 상담 <b>국번없이 1336</b></div>
     </div>
   </nav>
@@ -340,8 +342,9 @@
   </main>
 </div>
 <div class="toast" id="toast"></div>
+<div class="lotto-roam" id="lotto-roam" hidden><div class="roam-say" id="roam-say"></div><div class="roam-body" id="roam-body" title="로또 — 끌어서 돌려 보세요, 클릭하면 인사해요"></div></div>
 <script src="machine.js?v=8"></script>
-<script src="app.js?v=23"></script>
-<script type="module" src="lotto3d.js?v=10"></script>
+<script src="app.js?v=24"></script>
+<script type="module" src="lotto3d.js?v=11"></script>
 </body>
 </html>

@@ -188,6 +188,7 @@ class Lotto {
     drawFace(this.faceG, this.mood, this.blink, this.look, this.mouth);
     this.shownLook = { x: this.look.x, y: this.look.y }; this.lastFace = this.t; this.faceDirty = false; this.faceTex.needsUpdate = true;
   }
+  setWalk(on, dir) { this.walking = !!on; if (dir) this.walkDir = dir; }
   setTalking(on) { this.talking = !!on; if (!on) { this.mouth = null; this.faceDirty = true; } }
   spin() { if (this.spinT < 0) { this.spinT = 0; this.spinFrom = this.userYaw; } }
   /** 가만히 있을 때 가끔 하는 동작(손 흔들기·두리번·폴짝·모자 인사·기지개·춤·한 바퀴) */
@@ -267,8 +268,14 @@ class Lotto {
       this.symShow("sleep", 1e9);
       const z = this.syms.sleep, ph = (t * 0.5) % 1; z.position.set(0.85 + ph * 0.25, 2.3 + ph * 0.6, 0.2); z.scale.setScalar(0.34 + ph * 0.3); z.material.opacity = 1 - ph * 0.85;
     }
-    if (m === "normal" && !this.talking) this.idleAct(dt, p); else if (this.act) { this.act = null; this.lookOverride = null; }
+    if (m === "normal" && !this.talking && !this.walking) this.idleAct(dt, p); else if (this.act) { this.act = null; this.lookOverride = null; }
     if (this.talking) { p.hop += Math.abs(Math.sin(t * 13)) * 0.012; p.tz += Math.sin(t * 5.5) * 0.03; p.armR += Math.sin(t * 4) * 0.12; }   // 말할 때 고개·팔이 까딱
+    this.walkK = (this.walkK || 0) + ((this.walking ? 1 : 0) - (this.walkK || 0)) * (1 - Math.exp(-6 * dt));
+    if (this.walkK > 0.01) {     // 이동 중: 통통 튀고, 가는 쪽을 보고, 팔을 흔든다
+      const k = this.walkK, d = this.walkDir || 1, s = Math.sin(t * 8);
+      p.hop += Math.abs(s) * 0.2 * k; p.yaw += d * 0.55 * k; p.tz += s * 0.06 * k * d;
+      p.armR += s * 0.55 * k; p.armL += -s * 0.55 * k; p.sy *= 1 + Math.cos(t * 16) * 0.025 * k;
+    }
     const breathe = Math.sin(t * (m === "sleep" ? 1.1 : 2.2)) * (m === "sleep" ? 0.02 : 0.012);
     this.rig.position.set(p.trem, Math.sin(t * 2) * 0.03 + p.hop, 0);
     this.rig.scale.set(p.sx, p.sy * (1 + breathe), p.sx);
@@ -355,6 +362,7 @@ const Lotto3D = {
       get yaw() { return ch.userYaw; },
       spin() { ch.spin(); },
       talk(on) { ch.setTalking(on); },
+      walk(on, dir) { ch.setWalk(on, dir); },
       wave() { if (ch.mood === "normal") ch.startAct("wave"); },
       act(name) { if (ch.mood === "normal") ch.startAct(name); },
       sleep(on) { ch.setMood(on ? "sleep" : "normal"); },

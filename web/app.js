@@ -803,16 +803,49 @@
   });
 
   // ---------------------------------------------------------------- 캐릭터 '로또' (3D 공 박사)
-  const Pet = { snaps: null, machine: null, chat: null, big: null, tried: false, timer: 0 };
+  const Pet = { snaps: null, machine: null, chat: null, big: null, roam: null, tried: false, timer: 0 };
   // ---- 채팅 쪽 로또(머리의 작은 것 + 큰 화면의 오른쪽 큰 것)를 한꺼번에 다루는 도우미
-  const chatPets = () => [Pet.chat, Pet.big].filter(Boolean);
+  const chatPets = () => [Pet.chat, Pet.big, Roam.on && Pet.roam].filter(Boolean);
   const SAY = { normal: "궁금한 걸 물어보세요, 대장님!", happy: "조회했어요!", think: "자료를 확인하고 있어요…", wink: "추천 조합을 뽑았어요!", surprise: "앗, 이건 인기 모양이에요!", firm: "예측은 안 되지만, 사실은 알려 드려요.", worry: "앗, 문제가 생겼어요." };
+  const Roam = { on: false, x: 0, y: 0, W: 150, H: 172, timer: 0, say: 0, talking: false };
+  function roamSay(text) {
+    const el = $("#roam-say"); if (!el || !Roam.on || !text) return;
+    el.textContent = text; el.className = "roam-say" + (Roam.x < 120 ? " left" : Roam.x > innerWidth - 270 ? " right" : "") + (Roam.y < 90 ? " below" : "");
+    void el.offsetHeight; el.classList.add("show");
+    clearTimeout(Roam.say); Roam.say = setTimeout(() => el.classList.remove("show"), Math.min(9000, 2800 + text.length * 70));
+  }
   function lottoSay(text) {
+    roamSay(text);
     const el = $("#lotto-say"); if (!el || !text) return;
     el.textContent = text; el.style.animation = "none"; void el.offsetHeight; el.style.animation = "";
   }
   function chatMood(m) { chatPets().forEach((p) => p.setMood(m)); lottoSay(SAY[m] || SAY.normal); }
-  function chatTalk(on) { chatPets().forEach((p) => p.talk(on)); }
+  function chatTalk(on) { Roam.talking = !!on; chatPets().forEach((p) => p.talk(on)); }
+  // ---- 답변을 소리 내어 읽기: 이 기기에 들어 있는 한국어 목소리만 쓴다(인터넷 목소리는 글이 밖으로 나가서 제외)
+  const Voice = { on: false, voice: null, q: 0 };
+  function pickVoice() {
+    if (!("speechSynthesis" in window)) return null;
+    const vs = speechSynthesis.getVoices().filter((v) => /^ko/i.test(v.lang) && v.localService);
+    return vs[0] || null;
+  }
+  function stopVoice() { Voice.q++; try { speechSynthesis.cancel(); } catch (e) { /* 지원 안 함 */ } }
+  function speakAnswer(text) {
+    if (!Voice.on) return;
+    const v = Voice.voice || (Voice.voice = pickVoice()); if (!v) return;
+    const clean = text.replace(/```[\s\S]*?```/g, " ").replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/[*#>`|_~]/g, " ").replace(/\p{Extended_Pictographic}/gu, " ").replace(/\s+/g, " ").trim();
+    if (!clean) return;
+    const parts = (clean.slice(0, 700).match(/[^.!?。\n]+[.!?。]?/g) || [clean]).map((s) => s.trim()).filter(Boolean);
+    const my = ++Voice.q; let i = 0;
+    const next = () => {
+      if (my !== Voice.q) return;
+      if (i >= parts.length) { chatTalk(false); return; }
+      const u = new SpeechSynthesisUtterance(parts[i++]); u.voice = v; u.lang = v.lang; u.rate = 1.05; u.pitch = 1.1;
+      u.onstart = () => { if (my === Voice.q) chatTalk(true); };
+      u.onend = next; u.onerror = () => { if (my === Voice.q) chatTalk(false); };
+      speechSynthesis.speak(u);
+    };
+    next();
+  }
   function avatar(mood) { return `<span class="av" data-mood="${mood}">${Pet.snaps ? `<img alt="로또" src="${Pet.snaps[mood] || Pet.snaps.normal}">` : "🎱"}</span>`; }
   function paintAvatars() {
     if (!Pet.snaps) return;
@@ -847,6 +880,9 @@
       Pet.machine = window.Lotto3D.mount($("#lotto-pet"), { onTap: tap(() => Pet.machine) });
       Pet.chat = window.Lotto3D.mount($("#lotto-chat"), { onTap: tap(() => Pet.chat) });
       Pet.big = window.Lotto3D.mount($("#lotto-big"), { onTap: tap(() => Pet.big) });
+      const m0 = Pet.machine, fwd = (f) => (...a) => { m0[f](...a); if (Roam.on && Pet.roam) Pet.roam[f](...a); };
+      Pet.machine = m0 && { setMood: fwd("setMood"), hop: fwd("hop"), sleep: fwd("sleep"), get mood() { return m0.mood; } };
+      setRoam(store.get("roam", (innerWidth >= 900 && !matchMedia("(prefers-reduced-motion: reduce)").matches) ? "1" : "0") === "1");
     } catch (e) { /* 실시간 3D 만 포기 */ }
   }
   $("#brand-lotto").innerHTML = avatar("normal");
@@ -872,6 +908,50 @@
     if (sleeping || Date.now() - lastActive < 90000 || chat.busy || busyGen) return;
     sleeping = true; livePets().forEach((p) => p.sleep(true)); lottoSay("zZ… 졸려요…");
   }, 5000);
+  // ---- 화면 안을 돌아다니는 로또
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  function roamPlace(x, y, ms) {
+    const el = $("#lotto-roam"); Roam.x = x; Roam.y = y;
+    el.style.transition = ms ? `transform ${ms}ms cubic-bezier(.45,.05,.55,.95)` : "none"; el.style.transform = `translate(${x}px,${y}px)`;
+  }
+  function roamStep() {
+    clearTimeout(Roam.timer); if (!Roam.on || !Pet.roam) return;
+    const rest = (a, b) => { Roam.timer = setTimeout(roamStep, rnd(a, b)); };
+    if (document.hidden || sleeping || Roam.talking || window.innerWidth < 600) return rest(1800, 3000);
+    const tx = rnd(8, Math.max(9, innerWidth - Roam.W - 8)), ty = rnd(56, Math.max(57, innerHeight - Roam.H - 8));
+    const dist = Math.hypot(tx - Roam.x, ty - Roam.y), ms = Math.max(1600, dist / 105 * 1000);
+    Pet.roam.walk(true, tx >= Roam.x ? 1 : -1); roamPlace(tx, ty, ms);
+    Roam.timer = setTimeout(() => { Pet.roam && Pet.roam.walk(false); rest(2500, 7500); }, ms);
+  }
+  function setRoam(on) {
+    Roam.on = on; store.set("roam", on ? "1" : "0");
+    document.body.classList.toggle("roam-on", on && !!Pet.big);
+    $("#roam-btn").classList.toggle("on", on); $("#roam-btn").textContent = "로또 돌아다니기: " + (on ? "켬" : "끔");
+    const el = $("#lotto-roam"); el.hidden = !on; clearTimeout(Roam.timer);
+    if (!on) { Pet.roam && Pet.roam.walk(false); return; }
+    if (!Pet.roam && window.Lotto3D && window.Lotto3D.ok) {
+      Pet.roam = window.Lotto3D.mount($("#roam-body"), { onTap: () => { if (!Pet.roam) return; Math.random() < 0.5 ? Pet.roam.hop() : Pet.roam.wave(); roamSay(["안녕하세요, 대장님!", "저 여기 있어요!", "AI 상담에서 물어보세요!", "통계는 자신 있어요!"][Math.floor(Math.random() * 4)]); } });
+    }
+    if (!Pet.roam) { Roam.on = false; el.hidden = true; document.body.classList.remove("roam-on"); return; }
+    roamPlace(Roam.x || innerWidth - Roam.W - 30, Roam.y || innerHeight - Roam.H - 20, 0);
+    Roam.timer = setTimeout(roamStep, 1200);
+  }
+  window.addEventListener("resize", () => { if (Roam.on) roamPlace(Math.min(Roam.x, Math.max(0, innerWidth - Roam.W)), Math.min(Roam.y, Math.max(0, innerHeight - Roam.H)), 0); });
+  $("#roam-btn").addEventListener("click", () => setRoam(!Roam.on));
+  // ---- 답변 읽어 주기 켜고 끄기
+  function setTts(on) {
+    Voice.on = on; store.set("tts", on ? "1" : "0"); if (!on) { stopVoice(); chatTalk(false); }
+    const b = $("#tts-btn"); b.classList.toggle("on", on); b.textContent = "답변 읽어 주기: " + (on ? "켬" : "끔");
+  }
+  $("#tts-btn").addEventListener("click", () => {
+    if (!("speechSynthesis" in window)) { alert("이 브라우저는 소리 내어 읽기를 지원하지 않습니다."); return; }
+    if (Voice.on) return setTts(false);
+    Voice.voice = pickVoice();
+    if (!Voice.voice) { alert("이 기기에 한국어 목소리가 없습니다. (인터넷으로 글을 보내는 목소리는 쓰지 않습니다.)\n윈도우: 설정 → 시간 및 언어 → 음성 에서 한국어 음성을 추가하면 됩니다."); return; }
+    setTts(true); speakAnswer("안녕하세요, 대장님. 이제 답변을 읽어 드릴게요.");
+  });
+  if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = () => { Voice.voice = null; };
+  if (store.get("tts", "0") === "1") setTimeout(() => setTts(!!pickVoice()), 600); else setTts(false);
   window.addEventListener("lotto3d-ready", initPet);
   if (window.Lotto3D) initPet();
 
@@ -889,7 +969,7 @@
   async function send(text) {
     text = (text || "").trim();
     if (!text || chat.busy) return;
-    $(".chips-welcome")?.remove(); closePop();
+    $(".chips-welcome")?.remove(); closePop(); stopVoice();
     const model = $("#lms-model").value;
     if (!model) { toast("LM Studio 모델을 먼저 연결하세요"); return; }
     $("#chat-text").value = ""; $("#chat-text").style.height = "auto";
@@ -988,6 +1068,7 @@
     const mood = moodFor(answer, usedTools);
     setAvatarMood(el, mood);
     chatMood(mood);
+    speakAnswer(answer);
     chat.history.push(cards.length ? { role: "assistant", content: answer, cards, mood } : { role: "assistant", content: answer, mood });
     store.set("chat", JSON.stringify(chat.history.slice(-20)));
     chat.busy = false; chat.ctrl = null;
