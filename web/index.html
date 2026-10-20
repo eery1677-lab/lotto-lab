@@ -5,13 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>로또 확률 연구소</title>
 <link rel="icon" href="icon-64.png" type="image/png">
-<link rel="icon" href="icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="style.css?v=13">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="stylesheet" href="style.css?v=16">
 </head>
 <body>
 <div class="app">
   <nav class="side" id="nav">
-    <div class="brand"><b>🎱 로또 확률 연구소</b><span>근거 있는 숫자만 말합니다</span></div>
+    <div class="brand"><b><span class="brand-lotto" id="brand-lotto"></span>로또 확률 연구소</b><span>근거 있는 숫자만 말합니다</span></div>
     <button class="nav-btn active" data-view="home"><span class="ico">🏠</span>요약</button>
     <button class="nav-btn" data-view="gen"><span class="ico">✨</span>번호 만들기</button>
     <button class="nav-btn" data-view="check"><span class="ico">🔍</span>내 번호 검사</button>
@@ -54,7 +54,10 @@
       <h1>번호 만들기</h1>
       <p class="lead">추첨기를 돌려 <b>한 게임씩</b> 직접 뽑아 보세요. 당첨 확률은 어떤 번호든 같지만, 이 추첨기는 <b>당첨됐을 때 나눠 가질 사람이 적은 조합</b>만 꺼냅니다.</p>
       <div class="card machine-card" id="machine-card">
-        <canvas id="machine" role="img" aria-label="로또 추첨기: 공이 섞이다가 번호 6개가 나오는 연출"></canvas>
+        <div class="machine-stage">
+          <canvas id="machine" role="img" aria-label="로또 추첨기: 공이 섞이다가 번호 6개가 나오는 연출"></canvas>
+          <div class="lotto-pet" id="lotto-pet" title="로또 박사 — 끌어서 돌려 보세요, 더블클릭하면 한 바퀴"></div>
+        </div>
         <div class="machine-bar">
           <span class="small" id="machine-status">‘번호 뽑기’를 누르면 추첨기가 한 게임(공 6개)을 꺼냅니다.</span>
           <button class="btn sm" id="machine-skip" hidden>건너뛰기</button>
@@ -217,7 +220,7 @@
     <section class="view" id="view-ai">
       <div class="chat-wrap">
         <div>
-          <h1>AI 상담</h1>
+          <div class="chat-head"><h1>AI 상담</h1><div class="lotto-chat" id="lotto-chat" title="로또 박사 — 끌어서 360도 돌려 보세요, 더블클릭하면 한 바퀴"></div></div>
           <div class="chat-top">
             <span class="dot" id="lms-dot"></span>
             <select id="lms-model"><option value="">모델 불러오는 중…</option></select>
@@ -322,6 +325,7 @@
 </div>
 <div class="toast" id="toast"></div>
 <script src="machine.js?v=8"></script>
-<script src="app.js?v=16"></script>
+<script src="app.js?v=18"></script>
+<script type="module" src="lotto3d.js?v=6"></script>
 </body>
 </html>
