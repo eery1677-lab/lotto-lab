@@ -360,3 +360,34 @@ code { font-size: 13px; background: var(--panel-2); border: 1px solid var(--line
 .chat-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .brief-title { display: flex; align-items: center; gap: 10px; margin: 0 0 4px; }
 @media (max-width: 820px) { .chat-head { display: none; } }
+
+/* ---------- AI 상담 화면 정리 (2026-10-20): 대화 공간을 넓히고, 추천 질문은 처음에만·팝업으로 */
+.ai-mode main { padding-bottom: 14px; }
+.chat-wrap { height: calc(100vh - 44px); height: calc(100dvh - 44px); min-height: 460px; }
+.chat-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; }
+.chat-head h1 { margin: 0; font-size: 22px; }
+.chat-top { margin: 0; flex: 1 1 360px; min-width: 0; gap: 8px; }
+.chat-top select { max-width: 300px; flex: 1 1 200px; min-width: 0; }
+.lotto-chat { width: 84px; height: 96px; margin: -14px 0 -20px; flex: none; }
+.chat-info { display: grid; gap: 8px; margin: 0 0 8px; }
+.chat-info[hidden] { display: none; }
+.chat-info label { font-size: 13px; color: var(--muted); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.chat-log { padding: 4px 2px 12px; gap: 12px; }
+.chat-dock { position: relative; padding-top: 8px; }
+.chat-input { gap: 8px; align-items: flex-end; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 6px; box-shadow: var(--shadow); }
+.chat-input:focus-within { border-color: var(--accent); }
+.chat-input textarea { flex: 1; border: 0; border-radius: 10px; min-height: 40px; max-height: 150px; padding: 9px 8px; background: transparent; outline: none; }
+.chat-input textarea:focus { border: 0; }
+.chat-input .btn { height: 40px; border-radius: 12px; flex: none; }
+.btn.icon { width: 40px; padding: 0; font-size: 18px; }
+.chip-pop { position: absolute; left: 0; right: 0; bottom: 100%; margin-bottom: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 10px 30px rgba(15, 23, 42, .18); padding: 10px 12px; z-index: 6; }
+.chip-pop[hidden] { display: none; }
+.chip-pop .chips { margin: 0; flex-wrap: wrap; overflow: visible; }
+.chips-welcome { align-self: flex-start; margin: 0 0 0 2px; max-width: 820px; flex-wrap: wrap; overflow: visible; }
+@media (max-width: 820px) {
+  .chat-wrap { height: calc(100vh - 66px); height: calc(100dvh - 66px); }
+  .chat-head h1, .lotto-chat { display: none; }
+  .chat-head { margin-bottom: 6px; }
+  .chat-top { flex: 1 1 100%; }
+  .chat-top select { flex: 1 1 calc(100% - 24px); max-width: none; }
+}

@@ -6,7 +6,7 @@
 <title>로또 확률 연구소</title>
 <link rel="icon" href="icon-64.png" type="image/png">
 <link rel="apple-touch-icon" href="icon-180.png">
-<link rel="stylesheet" href="style.css?v=16">
+<link rel="stylesheet" href="style.css?v=18">
 </head>
 <body>
 <div class="app">
@@ -219,32 +219,41 @@
     <!-- AI 상담 -->
     <section class="view" id="view-ai">
       <div class="chat-wrap">
-        <div>
-          <div class="chat-head"><h1>AI 상담</h1><div class="lotto-chat" id="lotto-chat" title="로또 박사 — 끌어서 360도 돌려 보세요, 더블클릭하면 한 바퀴"></div></div>
-          <div class="chat-top">
-            <span class="dot" id="lms-dot"></span>
-            <select id="lms-model"><option value="">모델 불러오는 중…</option></select>
-            <input type="text" id="lms-base" value="http://127.0.0.1:1234" style="width:210px" title="LM Studio 주소">
-            <button class="btn sm" id="lms-refresh">다시 연결</button>
-            <button class="btn sm" id="chat-clear">대화 지우기</button>
-            <button class="btn sm" id="eval-toggle">모델 성적표</button>
+        <div class="chat-header">
+          <div class="chat-head">
+            <h1>AI 상담</h1>
+            <div class="chat-top">
+              <span class="dot" id="lms-dot"></span>
+              <select id="lms-model"><option value="">모델 불러오는 중…</option></select>
+              <button class="btn sm" id="lms-refresh" title="LM Studio 다시 연결">다시 연결</button>
+              <button class="btn sm" id="chat-clear">대화 지우기</button>
+              <button class="btn sm" id="eval-toggle">모델 성적표</button>
+              <button class="btn sm" id="info-toggle" title="안내·LM Studio 주소" aria-label="안내">ⓘ</button>
+            </div>
+            <div class="lotto-chat" id="lotto-chat" title="로또 박사 — 끌어서 360도 돌려 보세요, 더블클릭하면 한 바퀴"></div>
+          </div>
+          <div class="chat-info" id="chat-info" hidden>
+            <div class="callout ai small">이 컴퓨터의 LM Studio 로만 동작합니다(인터넷으로 나가지 않음). AI 는 코드가 계산한 숫자만 쓰도록 지시되어 있고, 자료에 없는 숫자를 쓰면 답 아래에 표시됩니다.</div>
+            <label>LM Studio 주소 <input type="text" id="lms-base" value="http://127.0.0.1:1234" style="width:230px"></label>
           </div>
           <div class="card soft" id="eval-panel" hidden style="margin-bottom:10px"></div>
-          <div class="callout ai small">이 컴퓨터의 LM Studio 로만 동작합니다(인터넷으로 나가지 않음). AI 는 코드가 계산한 숫자만 쓰도록 지시되어 있고, 자료에 없는 숫자를 쓰면 답 아래에 표시됩니다.</div>
         </div>
         <div class="chat-log" id="chat-log"></div>
-        <div>
-          <div class="chips" id="chips">
-            <button class="chip">이번 주 번호 추천해 줘</button>
-            <button class="chip">핫넘버·콜드넘버는 효과가 있어?</button>
-            <button class="chip">로또가 정말 무작위인지 설명해 줘</button>
-            <button class="chip">미국 로또 당첨 사례는 어떻게 된 거야?</button>
-            <button class="chip">AI로 로또 예측하는 연구는 효과가 있어?</button>
-            <button class="chip">1등 당첨되면 실제로 얼마 받아?</button>
-            <button class="chip">7 11 17 23 33 41 검사해 줘</button>
+        <div class="chat-dock">
+          <div class="chip-pop" id="chip-pop" hidden>
+            <div class="chips" id="chips">
+              <button class="chip">이번 주 번호 추천해 줘</button>
+              <button class="chip">핫넘버·콜드넘버는 효과가 있어?</button>
+              <button class="chip">로또가 정말 무작위인지 설명해 줘</button>
+              <button class="chip">미국 로또 당첨 사례는 어떻게 된 거야?</button>
+              <button class="chip">AI로 로또 예측하는 연구는 효과가 있어?</button>
+              <button class="chip">1등 당첨되면 실제로 얼마 받아?</button>
+              <button class="chip">7 11 17 23 33 41 검사해 줘</button>
+            </div>
           </div>
           <div class="chat-input">
-            <textarea id="chat-text" rows="1" placeholder="질문을 입력하세요 (Enter 보내기, Shift+Enter 줄바꿈)"></textarea>
+            <button class="btn icon" id="chip-btn" title="추천 질문" aria-label="추천 질문">💡</button>
+            <textarea id="chat-text" rows="1" placeholder="대장님, 무엇이 궁금하세요?" title="Enter 보내기 · Shift+Enter 줄바꿈"></textarea>
             <button class="btn ai" id="chat-send">보내기</button>
           </div>
         </div>
@@ -325,7 +334,7 @@
 </div>
 <div class="toast" id="toast"></div>
 <script src="machine.js?v=8"></script>
-<script src="app.js?v=18"></script>
+<script src="app.js?v=20"></script>
 <script type="module" src="lotto3d.js?v=6"></script>
 </body>
 </html>

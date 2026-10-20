@@ -62,6 +62,7 @@
   function showView(v) {
     $$(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === v));
     $$(".view").forEach((s) => s.classList.toggle("active", s.id === "view-" + v));
+    document.body.classList.toggle("ai-mode", v === "ai");
     store.set("view", v);
     if (v === "ai") initChat();
     window.scrollTo(0, 0);
@@ -641,6 +642,7 @@
     if (!chat.history.length) {
       addMsg("bot", "안녕하세요, 대장님! 저는 로또 공 박사 ‘로또’예요. 당첨 번호를 예측해 드릴 수는 없지만, 실제 자료로 계산한 통계와 ‘나눠 가질 위험이 적은 조합’은 정확하게 알려 드릴 수 있어요. 무엇이 궁금하세요?", null, "happy");
       if (Pet.chat) Pet.chat.setMood("happy");
+      showWelcomeChips();
     } else {
       chat.history.forEach((m) => addMsg(m.role === "user" ? "user" : "bot", m.content, m.cards, m.mood));
     }
@@ -651,6 +653,18 @@
     chat.history = []; store.set("chat", "[]"); $("#chat-log").innerHTML = ""; chat.inited = false; initChat();
   });
   $("#chips").addEventListener("click", (e) => { const c = e.target.closest(".chip"); if (c) send(c.textContent); });
+  // 추천 질문: 처음엔 인사 말풍선 아래에만, 그 뒤로는 입력줄의 💡 팝업으로
+  function closePop() { $("#chip-pop").hidden = true; }
+  $("#chip-btn").addEventListener("click", (e) => { e.stopPropagation(); $("#chip-pop").hidden = !$("#chip-pop").hidden; });
+  document.addEventListener("click", (e) => { if (!$("#chip-pop").hidden && !e.target.closest("#chip-pop, #chip-btn")) closePop(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePop(); });
+  $("#info-toggle").addEventListener("click", () => { $("#chat-info").hidden = !$("#chat-info").hidden; });
+  $("#chat-log").addEventListener("click", (e) => { const c = e.target.closest(".chips-welcome .chip"); if (c) send(c.textContent); });
+  function showWelcomeChips() {
+    const box = document.createElement("div"); box.className = "chips chips-welcome";
+    $$("#chips .chip").forEach((c) => box.appendChild(c.cloneNode(true)));
+    $("#chat-log").appendChild(box);
+  }
   $("#chat-text").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send($("#chat-text").value); }
   });
@@ -842,6 +856,7 @@
   async function send(text) {
     text = (text || "").trim();
     if (!text || chat.busy) return;
+    $(".chips-welcome")?.remove(); closePop();
     const model = $("#lms-model").value;
     if (!model) { toast("LM Studio 모델을 먼저 연결하세요"); return; }
     $("#chat-text").value = ""; $("#chat-text").style.height = "auto";
