@@ -11,7 +11,7 @@ import time
 import urllib.request
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(BASE_DIR, "data")
+DATA_DIR = os.environ.get("LOTTO_DATA_DIR") or os.path.join(BASE_DIR, "data")  # 시험할 때 복사본 폴더 지정
 DATA_FILE = os.path.join(DATA_DIR, "draws.json")
 API_URL = "https://www.dhlottery.co.kr/lt645/selectPstLt645Info.do?srchLtEpsd=all"
 HEADERS = {
@@ -53,7 +53,17 @@ def _convert(item):
         "rank1_total": int(item.get("rnk1SumWnAmt") or 0),
         "prize_total": sum(int(item.get(f"rnk{r}SumWnAmt") or 0) for r in range(1, 6)),
         "sales": int(item.get("wholEpsdSumNtslAmt") or 0),
+        # 1등 당첨자 구매 방식(262회부터 공개): winType1=자동, 2=수동, 3=반자동. 합이 1등 인원과 다르면 미공개로 본다.
+        "rank1_by_type": _by_type(item),
     }
+
+
+def _by_type(item):
+    t = [int(item.get(f"winType{i}") or 0) for i in (1, 2, 3)]
+    total = int(item.get("rnk1WnNope") or 0)
+    if total and sum(t) == total:
+        return {"auto": t[0], "manual": t[1], "semi": t[2]}
+    return None
 
 
 def fetch_all():

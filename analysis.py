@@ -10,6 +10,7 @@ import bisect
 import math
 import random
 import secrets
+from itertools import combinations
 from math import comb
 
 BALLS = 45
@@ -20,6 +21,37 @@ RANK_COMBOS = [1, 6, 228, comb(6, 4) * comb(39, 2), comb(6, 3) * comb(39, 3)]
 RANK_PROB = [c / TOTAL for c in RANK_COMBOS]
 HYPER_MEAN = PICK * PICK / BALLS  # 한 게임이 맞히는 개수의 평균 0.8
 HYPER_VAR = PICK * (PICK / BALLS) * (1 - PICK / BALLS) * (BALLS - PICK) / (BALLS - 1)
+
+
+# ---------------------------------------------------------------- 세금 (소득세법 복권 당첨금, 지방소득세 포함)
+TAX_FREE_LIMIT = 2_000_000      # 이하 비과세
+TAX_BRACKET = 300_000_000       # 이하 22%, 초과분 33%
+TICKET_COST = 1000              # 필요경비(구입 금액)로 빼 줌
+
+
+def after_tax(prize):
+    """1인당 당첨금(세전) → 실수령액."""
+    if prize <= TAX_FREE_LIMIT:
+        return prize
+    taxable = prize - TICKET_COST
+    tax = 0.22 * min(taxable, TAX_BRACKET) + 0.33 * max(0, taxable - TAX_BRACKET)
+    return prize - tax
+
+
+def expected_net_share(pool, lam):
+    """함께 당첨될 사람 K ~ 포아송(λ) 일 때 E[세후(pool/(1+K))]."""
+    if lam <= 0:
+        return after_tax(pool)
+    if lam > 200:  # 3등처럼 동반 당첨자가 아주 많으면 평균으로 충분(e^-λ 가 0 으로 사라짐)
+        return after_tax(pool / (1 + lam))
+    total = 0.0
+    p = math.exp(-lam)
+    kmax = int(lam + 12 * math.sqrt(lam) + 30)
+    for k in range(kmax + 1):
+        if k:
+            p *= lam / k
+        total += p * after_tax(pool / (1 + k))
+    return total
 
 
 # ---------------------------------------------------------------- 수학 도구
@@ -160,6 +192,9 @@ PATTERNS = [
     ("row", "용지 같은 가로줄 최대 개수", "용지에 가로로 줄 긋기"),
     ("digit", "끝자리 같은 번호 최대 개수", "3·13·23 처럼 끝자리 맞추기"),
     ("mult", "5·7의 배수 위주 정도", "5·10·15… 또는 7·14·21… 같은 규칙 고르기"),
+]
+PATTERN_EXTRA = [
+    ("past4", "과거 1등과 4개 이상 같음", "지난 당첨번호를 그대로 또는 조금 바꿔 사는 사람(독일 연구·복권위 1057회 설명)"),
 ]
 
 
@@ -472,77 +507,106 @@ class Analyzer:
             "strategies": out,
         }
 
-    # ---------- 3. 인기 조합 모델
-    # 1단계: 5등(3개 일치, 회당 약 260만 명) 당첨자 수 / 기대값 → 번호 45개 각각의 인기도.
-    #        당첨자가 많아 잡음이 거의 없다.
-    # 2단계: 1등 당첨자 수를 [번호 인기 합 + 모양 특징] 으로 포아송 회귀(판매량 offset).
-    # 검증: 앞부분으로만 맞춘 모델을 최근 300회 1등 당첨자 수에 적용.
+    # ---------- 3. 인기 조합 모델 (2026-10-20 개정 — 자동/수동 구분)
+    # 근거(조사·실측): 1등 당첨자 중 자동(약 66%)은 판매량만으로 설명되는 순수 우연이고(과산포 1.05, 번호 인기와 상관 -0.04),
+    # 사람이 고른 수동·반자동 당첨자에만 인기가 드러난다.
+    # 1단계: 5등(3개 일치) 당첨자 수 → 번호 45개 각각의 인기도(릿지).
+    # 2단계: 수동+반자동 1등 당첨자 수(262회~ 공개)를 [번호 인기 합 + 모양 6 + 과거 1등과 4개 이상 같음] 으로 포아송 회귀.
+    # 조합의 1등 동반 당첨자 = 판매게임/8,145,060 × (자동 비율 + 수동 비율 × 수동 인기도) — 자동 비율이 내려갈 수 있는 바닥.
+    # 검증: 앞부분으로만 맞춘 모델을 구분이 공개된 최근 300회에 적용.
     def _pop_rows(self, start):
         ds = self.draws
         rows = []
-        for t in range(start - 1, self.n):
-            d = ds[t]
-            tk = _tickets(d)
-            e5 = tk * RANK_COMBOS[4] / TOTAL
-            if tk <= 0 or d["winners"][4] <= 0:
-                continue
-            rows.append({
-                "no": d["no"], "nums": d["nums"], "prev": ds[t - 1]["nums"],
-                "y5": math.log(d["winners"][4] / e5),
-                "w1": d["winners"][0], "off1": math.log(tk / TOTAL), "exp1": tk / TOTAL,
-            })
+        past4 = set()
+        for t, d in enumerate(ds):
+            if t >= start - 1:
+                tk = _tickets(d)
+                if tk > 0 and d["winners"][4] > 0:
+                    r = {
+                        "no": d["no"], "nums": d["nums"], "prev": ds[t - 1]["nums"],
+                        "past4": 1 if any(c in past4 for c in combinations(d["nums"], 4)) else 0,
+                        "y5": math.log(d["winners"][4] / (tk * RANK_COMBOS[4] / TOTAL)),
+                        "w1": d["winners"][0], "exp1": tk / TOTAL, "off1": math.log(tk / TOTAL),
+                    }
+                    bt = d.get("rank1_by_type")
+                    if bt:
+                        r["auto"] = bt["auto"]
+                        r["man"] = bt["manual"] + bt["semi"]
+                    rows.append(r)
+            past4.update(combinations(d["nums"], 4))
+        self._past4_all = past4
         return rows
 
+    def _has_past4(self, nums):
+        return 1 if any(c in self._past4_all for c in combinations(sorted(nums), 4)) else 0
+
     @staticmethod
-    def _pop_x(w, nums, prev):
-        return [sum(w[n] for n in nums)] + features(nums, prev)[1:]
+    def _pop_x(w, nums, prev, past4):
+        return [sum(w[n] for n in nums)] + features(nums, prev)[1:] + [past4]
 
     def _fit_pop(self, rows):
         w = per_number_weights(rows, "y5")
-        fit = poisson_reg([self._pop_x(w, r["nums"], r["prev"]) for r in rows],
-                          [r["w1"] for r in rows], [r["off1"] for r in rows])
-        return w, fit
+        typed = [r for r in rows if "man" in r]
+        exp_sum = sum(r["exp1"] for r in typed)
+        sa = sum(r["auto"] for r in typed) / exp_sum
+        sm = sum(r["man"] for r in typed) / exp_sum
+        fit = poisson_reg([self._pop_x(w, r["nums"], r["prev"], r["past4"]) for r in typed],
+                          [r["man"] for r in typed], [r["off1"] + math.log(sm) for r in typed])
+        return w, fit, sa, sm, typed
 
     def _popularity(self, start=100):
         rows = self._pop_rows(start)
-        w, fit = self._fit_pop(rows)
-        self.pop_w, self.pop_beta = w, fit["beta"]
+        w, fit, sa, sm, typed = self._fit_pop(rows)
+        self.pop_w, self.pop_beta, self.auto_share, self.manual_share = w, fit["beta"], sa, sm
 
-        # 표본 밖 검증
-        cut = len(rows) - 300
-        train, test = rows[:cut], rows[cut:]
-        wt, ft = self._fit_pop(train)
-        pred = [sum(b * v for b, v in zip(ft["beta"][1:], self._pop_x(wt, r["nums"], r["prev"]))) for r in test]
-        corr5 = _corr([sum(wt[n] for n in r["nums"]) for r in test], [r["y5"] for r in test])
-        corr1 = _corr(pred, [math.log((r["w1"] + 0.5) / r["exp1"]) for r in test])
+        # 자동 당첨자가 순수 우연인지(판매량 포아송) 확인
+        disp_auto = sum((r["auto"] - sa * r["exp1"]) ** 2 / (sa * r["exp1"]) for r in typed) / (len(typed) - 1)
+
+        # 표본 밖 검증: 구분이 공개된 회차 중 최근 300회
+        cut_no = typed[-300]["no"]
+        train = [r for r in rows if r["no"] < cut_no]
+        test = [r for r in typed if r["no"] >= cut_no]
+        wt, ft, sat, smt, _ = self._fit_pop(train)
+        pred = [sum(b * v for b, v in zip(ft["beta"][1:], self._pop_x(wt, r["nums"], r["prev"], r["past4"]))) for r in test]
         order = sorted(range(len(test)), key=lambda i: pred[i])
         q = len(order) // 4
 
-        def r1(idx):
-            return sum(test[i]["w1"] for i in idx) / sum(test[i]["exp1"] for i in idx)
+        def ratio(idx, key, share):
+            return sum(test[i][key] for i in idx) / sum(test[i]["exp1"] * share for i in idx)
 
-        # 번호별 인기(1등 기준으로 환산: 계수 × w)
+        def ratio_total(idx):
+            return sum(test[i]["w1"] for i in idx) / sum(test[i]["exp1"] * (sat + smt) for i in idx)
+
+        corr_m = _corr(pred, [math.log((r["man"] + 0.5) / (r["exp1"] * smt)) for r in test])
+
         scale = fit["beta"][1]
         wm = sum(w[1:]) / BALLS
         numbers = [{"n": n, "pct": round((math.exp(scale * (w[n] - wm)) - 1) * 100, 1)} for n in range(1, BALLS + 1)]
         coefs = [{"key": "numsum", "label": "번호 인기 합", "desc": "고른 6개 번호 각각의 인기도 합(5등 당첨자 수로 추정)",
                   "effect_pct": None, "t": round(fit["beta"][1] / fit["se"][1], 1) if fit["se"][1] else 0.0}]
-        for i, (key, label, desc) in enumerate(PATTERNS):
+        for i, (key, label, desc) in enumerate(PATTERNS + PATTERN_EXTRA):
             b = fit["beta"][i + 2]
             se = fit["se"][i + 2]
             coefs.append({"key": key, "label": label, "desc": desc,
                           "effect_pct": round((math.exp(b) - 1) * 100, 1),
                           "t": round(b / se, 1) if se else 0.0})
-        top = sorted(rows, key=lambda r: -(r["w1"] / r["exp1"]))[:10]
+        top = sorted(typed, key=lambda r: -(r["man"] / (r["exp1"] * sm)))[:10]
         return {
-            "from": start, "rows": len(rows), "dispersion": round(fit["dispersion"], 2),
+            "from": start, "rows": len(rows), "typed": len(typed), "typed_from": typed[0]["no"],
+            "dispersion": round(fit["dispersion"], 2),
+            "auto_share": round(sa, 3), "manual_share": round(sm, 3), "auto_dispersion": round(disp_auto, 2),
+            "floor": round(sa / (sa + sm), 3),
             "numbers": numbers,
             "coefs": coefs,
-            "holdout": {"draws": len(test), "corr5": round(corr5, 3), "corr1": round(corr1, 3),
-                        "popular_quarter": round(r1(order[-q:]), 2),
-                        "unpopular_quarter": round(r1(order[:q]), 2)},
-            "top_shared": [{"no": r["no"], "nums": r["nums"], "winners": r["w1"],
-                            "times": round(r["w1"] / r["exp1"], 1)} for r in top],
+            "holdout": {"draws": len(test), "corr_manual": round(corr_m, 3),
+                        "manual_unpopular": round(ratio(order[:q], "man", smt), 2),
+                        "manual_popular": round(ratio(order[-q:], "man", smt), 2),
+                        "auto_unpopular": round(ratio(order[:q], "auto", sat), 2),
+                        "auto_popular": round(ratio(order[-q:], "auto", sat), 2),
+                        "total_unpopular": round(ratio_total(order[:q]), 2),
+                        "total_popular": round(ratio_total(order[-q:]), 2)},
+            "top_shared": [{"no": r["no"], "nums": r["nums"], "winners": r["w1"], "auto": r["auto"], "manual": r["man"],
+                            "times": round(r["man"] / (r["exp1"] * sm), 1)} for r in top],
         }
 
     def _money(self):
@@ -550,68 +614,98 @@ class Analyzer:
         tickets = sum(_tickets(d) for d in recent) / len(recent)
         pools = [_rank1_pool(d) for d in recent if d["winners"][0] > 0 and _rank1_pool(d) > 0]
         pool = sum(pools) / len(pools) if pools else 0
+        pool2 = sum(d["winners"][1] * d["amounts"][1] for d in recent) / len(recent)
+        pool3 = sum(d["winners"][2] * d["amounts"][2] for d in recent) / len(recent)
         all_d = [d for d in self.draws if d["prize_total"] > 0 and d["sales"] > 0]
         payout = sum(d["prize_total"] for d in all_d) / sum(d["sales"] for d in all_d)
         last52_payout = sum(d["prize_total"] for d in recent) / sum(d["sales"] for d in recent)
         maxw = max(self.draws, key=lambda d: d["winners"][0])
         return {
             "tickets_per_draw": round(tickets),
-            "rank1_pool": round(pool),
+            "rank1_pool": round(pool), "rank2_pool": round(pool2), "rank3_pool": round(pool3),
             "lambda_avg": round(tickets / TOTAL, 2),
             "payout_pct_all": round(payout * 100, 1),
             "payout_pct_recent": round(last52_payout * 100, 1),
             "payout_basis_draws": len(all_d),
             "most_rank1": {"no": maxw["no"], "date": maxw["date"], "nums": maxw["nums"],
-                           "winners": maxw["winners"][0], "amount": maxw["amounts"][0]},
+                           "winners": maxw["winners"][0], "amount": maxw["amounts"][0],
+                           "by_type": maxw.get("rank1_by_type")},
             "prob": {"rank": [f"1/{round(1 / p):,}" for p in RANK_PROB]},
             "buy_all_cost": TOTAL * 1000,
         }
+
+    def _ev(self, m):
+        """1,000원 1게임의 기대 환급(세전, 세후). m = 조합 인기도(평균 조합 1.0).
+        4·5등은 고정 금액, 1~3등은 같은 등수 당첨자끼리 나눔(동반 당첨자 ~ 포아송)."""
+        mo = self.money
+        fixed = RANK_PROB[3] * 50000 + RANK_PROB[4] * 5000
+        pre = net = fixed
+        for k, pool in ((0, mo["rank1_pool"]), (1, mo["rank2_pool"]), (2, mo["rank3_pool"])):
+            lam = mo["tickets_per_draw"] * RANK_COMBOS[k] / TOTAL * m
+            pre += RANK_PROB[k] * pool * ((1 - math.exp(-lam)) / lam if lam > 0 else 1.0)
+            net += RANK_PROB[k] * expected_net_share(pool, lam)
+        return pre, net
 
     def _build(self):
         self.randomness = self._randomness()
         self.backtest = self._backtest()
         self.popularity = self._popularity()
         self.money = self._money()
-        # 무작위 조합의 인기 점수 분포(백분위 계산용)
+        # 무작위 조합의 (수동) 인기 점수 분포 — 백분위·정규화용
         rng = random.Random(45)
         prev = self.draws[-1]["nums"]
         ref = sorted(self._log_rel(sorted(rng.sample(range(1, 46), 6)), prev) for _ in range(20000))
         self._ref = ref
-        # 평균 조합의 λ 가 판매량 기준 기대값과 같아지도록 보정
         self._log_norm = math.log(sum(math.exp(v) for v in ref) / len(ref))
+        sa, sm = self.auto_share, self.manual_share
+        self._m_floor = sa / (sa + sm)
+        self.money["ev_avg"] = [round(x) for x in self._ev(1.0)]
+        self.money["ev_floor"] = [round(x) for x in self._ev(self._m_floor)]
+        self.money["auto_floor"] = round(self._m_floor, 3)
 
     # ---------- 조합 평가 · 생성
     def _log_rel(self, nums, prev):
-        return sum(bb * v for bb, v in zip(self.pop_beta[1:], self._pop_x(self.pop_w, nums, prev)))
+        return sum(bb * v for bb, v in zip(self.pop_beta[1:], self._pop_x(self.pop_w, nums, prev, self._has_past4(nums))))
+
+    def _popularity_of(self, lr):
+        """수동 인기 점수 → 조합 전체 인기도(평균 1.0, 자동 비율이 바닥)."""
+        sa, sm = self.auto_share, self.manual_share
+        return (sa + sm * math.exp(lr - self._log_norm)) / (sa + sm)
 
     def evaluate(self, nums, prev=None):
         nums = sorted(nums)
         prev = prev or self.draws[-1]["nums"]
         lr = self._log_rel(nums, prev)
-        rel = math.exp(lr - self._log_norm)
-        lam = self.money["tickets_per_draw"] / TOTAL * rel  # 나 말고 같은 조합을 산 사람 수(평균)
-        share = (1 - math.exp(-lam)) / lam if lam > 0 else 1.0  # E[1/(1+K)], K~Poisson(λ)
+        rel = self._popularity_of(lr)
         lam_avg = self.money["tickets_per_draw"] / TOTAL
+        lam = lam_avg * rel  # 나 말고 같은 조합을 산 사람 수(평균)
+        share = (1 - math.exp(-lam)) / lam if lam > 0 else 1.0  # E[1/(1+K)], K~Poisson(λ)
         share_avg = (1 - math.exp(-lam_avg)) / lam_avg
         pct = bisect.bisect_left(self._ref, lr) / len(self._ref) * 100
         feats = features(nums, prev)
+        ev_pre, ev_net = self._ev(rel)
         return {
             "nums": nums,
-            "popularity": round(rel, 2),          # 1.0 = 평균 조합
+            "popularity": round(rel, 2),          # 1.0 = 평균 조합, 바닥 = 자동 비율(약 0.66)
+            "manual_popularity": round(math.exp(lr - self._log_norm), 2),
             "percentile": round(pct, 1),          # 낮을수록 덜 인기
             "co_winners": round(lam, 2),
             "expected_rank1": round(self.money["rank1_pool"] * share),
             "expected_rank1_avg": round(self.money["rank1_pool"] * share_avg),
+            "expected_rank1_net": round(expected_net_share(self.money["rank1_pool"], lam)),
+            "expected_rank1_net_avg": round(expected_net_share(self.money["rank1_pool"], lam_avg)),
+            "ev": [round(ev_pre), round(ev_net)],
+            "ev_avg": self.money["ev_avg"], "ev_floor": self.money["ev_floor"],
+            "past4": self._has_past4(nums),
             "features": {k: v for (k, _, _), v in zip(FEATURES + PATTERNS, feats)},
             "sum": sum(nums), "odd": sum(1 for x in nums if x % 2),
         }
 
     def generate(self, count=5, mode="unpopular", strength=10, exclude_past=True):
         """운영체제 난수로 조합을 뽑고, unpopular 면 인기 점수 하위 strength% 만 남긴다.
-        과거 1등 조합은 일부러 사는 사람이 많아 뺀다(확률은 똑같다)."""
+        과거 1등 조합과 그것을 조금 바꾼 조합(4개 이상 같음)은 따라 사는 사람이 많아 뺀다(확률은 똑같다)."""
         sysrand = secrets.SystemRandom()  # 운영체제 암호학적 난수
         prev = self.draws[-1]["nums"]
-        past = {tuple(d["nums"]) for d in self.draws} if exclude_past else set()
         cut = self._ref[int(len(self._ref) * strength / 100)]
         out = []
         seen = set()
@@ -619,7 +713,7 @@ class Analyzer:
         while len(out) < count and tries < 200000:
             tries += 1
             c = tuple(sorted(sysrand.sample(range(1, 46), 6)))
-            if c in seen or c in past:
+            if c in seen or (exclude_past and self._has_past4(c)):
                 continue
             if mode == "unpopular" and self._log_rel(list(c), prev) > cut:
                 continue
@@ -692,22 +786,28 @@ class Analyzer:
             + f" '3개 이상' 횟수의 이론 기대는 약 {round(e3)}회이고 운만으로 {lo3}~{hi3}회는 흔하다. 환급률 차이는 4등 이상 1~2번에 좌우되는 운이다."
             " 따라서 어느 방법이 '많았다/높았다'고 해서 효과가 있다고 말하면 틀린 말이다.")
         lines += [
-            f"- 인기 조합 모델({p['from']}회~ {p['rows']}회): 5등 당첨자 수로 번호별 인기도를 구하고 1등 당첨자 수로 포아송 회귀.",
-            "  · 사람들이 많이 고르는 번호(1등 동반 당첨자 증감): "
+            f"- 인기 조합 모델: 1등 당첨자는 자동(비율 {p['auto_share']})과 수동·반자동(비율 {p['manual_share']})으로 나뉜다({p['typed_from']}회부터 공개, {p['typed']}회). "
+            f"자동 당첨자는 판매량만으로 설명되는 순수 우연이다(과산포 {p['auto_dispersion']}, 1이면 순수 무작위). 인기는 수동 당첨자에서만 드러난다.",
+            "  · 수동 구매자가 많이 고르는 번호(1등 동반 당첨자 증감): "
             + ", ".join(f"{x['n']}번 {x['pct']:+}%" for x in sorted(p["numbers"], key=lambda x: -x["pct"])[:6]),
-            "  · 적게 고르는 번호: " + ", ".join(f"{x['n']}번 {x['pct']:+}%" for x in sorted(p["numbers"], key=lambda x: x["pct"])[:6]),
+            "  · 수동 구매자가 적게 고르는 번호: " + ", ".join(f"{x['n']}번 {x['pct']:+}%" for x in sorted(p["numbers"], key=lambda x: x["pct"])[:6]),
         ]
         for c in p["coefs"][1:]:
-            lines.append(f"  · {c['label']} 1 증가 → 1등 동반 당첨자 {c['effect_pct']:+}% (t={c['t']}, |t|<2 이면 근거 약함)")
+            lines.append(f"  · {c['label']} → 수동 동반 당첨자 {c['effect_pct']:+}% (t={c['t']}, |t|<2 이면 근거 약함)")
+        h = p["holdout"]
         lines += [
-            f"  · 최근 {p['holdout']['draws']}회 표본 밖 검증: 모델이 '인기'로 본 상위 1/4 회차의 1등 당첨자는 기대의 {p['holdout']['popular_quarter']}배, "
-            f"'비인기' 하위 1/4 회차는 {p['holdout']['unpopular_quarter']}배.",
-            "  · 주의: 이 모델은 당첨 확률이 아니라 '당첨됐을 때 나눠 가질 사람 수'만 예측한다. 한국은 자동 구매 비중이 커서 효과는 10~25% 정도로 크지 않다.",
+            f"  · 최근 {h['draws']}회 표본 밖 검증: '비인기'로 본 하위 1/4 회차의 수동 1등 당첨자는 기대의 {h['manual_unpopular']}배, "
+            f"'인기' 상위 1/4 회차는 {h['manual_popular']}배. 같은 회차의 자동 당첨자는 {h['auto_unpopular']}배 / {h['auto_popular']}배(차이 없음 = 정상).",
+            f"  · 자동 구매가 모든 조합에 고르게 퍼져 있어, 아무리 비인기 조합이라도 동반 당첨자는 평균의 약 {m['auto_floor']}배 아래로 내려가지 않는다.",
+            f"  · 1,000원 1게임의 기대 환급: 평균 조합 세전 약 {m['ev_avg'][0]}원(세후 {m['ev_avg'][1]}원), 이론상 가장 덜 인기인 조합도 세전 약 {m['ev_floor'][0]}원(세후 {m['ev_floor'][1]}원). "
+            "즉 어떤 번호를 골라도 기대값은 1,000원보다 작다(손해). 비인기 조합은 '덜 잃는 방법'일 뿐이다.",
+            "  · 이 모델은 당첨 확률이 아니라 '당첨됐을 때 나눠 가질 사람 수'만 예측한다.",
             f"- 최근 52회 평균: 회당 {m['tickets_per_draw']:,}게임 판매, 1등 총상금 평균 {m['rank1_pool']:,}원, "
             f"평균 조합의 1등 동반 당첨자 {m['lambda_avg']}명.",
             f"- 환급률(당첨금 총액/판매액): 전체 {m['payout_pct_all']}%, 최근 52회 {m['payout_pct_recent']}%. 즉 1,000원당 평균 약 {round(m['payout_pct_recent'] * 10)}원이 돌아옴.",
             f"- 1등 최다 당첨: {m['most_rank1']['no']}회({m['most_rank1']['date']}) {m['most_rank1']['winners']}명, "
-            f"1인당 {m['most_rank1']['amount']:,}원, 번호 {', '.join(map(str, m['most_rank1']['nums']))}.",
+            f"1인당 {m['most_rank1']['amount']:,}원, 번호 {', '.join(map(str, m['most_rank1']['nums']))}"
+            + (f" — 자동 {m['most_rank1']['by_type']['auto']}명·수동 {m['most_rank1']['by_type']['manual']}명(수동 구매자 사이에서 유행한 조합)." if m['most_rank1'].get('by_type') else "."),
             f"- 모든 조합을 사는 비용: {m['buy_all_cost']:,}원 (1인 1회 구매 한도 10만원이라 불가능).",
         ]
         return "\n".join(lines)

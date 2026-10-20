@@ -193,9 +193,10 @@
       <div class="meta">
         인기도 <b>${c.popularity}배</b> (1.0 = 평균 조합, 하위 ${c.percentile}%)
         <div class="bar" title="회색 선 = 평균 조합"><i style="width:${pct}%;background:${c.popularity <= 1 ? "var(--good)" : "var(--warn)"}"></i><span class="avg" style="left:${100 / 1.3}%"></span></div>
-        1등이면 함께 당첨될 사람 약 <b>${c.co_winners}명</b> · 기대 수령액(세전) <b>${won(c.expected_rank1)}</b>
+        1등이면 함께 당첨될 사람 약 <b>${c.co_winners}명</b> · 기대 수령액 세전 <b>${won(c.expected_rank1)}</b> / 세후 <b>${won(c.expected_rank1_net)}</b>
         <span style="color:${gain >= 0 ? "var(--good)" : "var(--warn)"}">(평균 조합 대비 ${gain >= 0 ? "+" : ""}${(gain * 100).toFixed(1)}%)</span>
-        <div>합계 ${c.sum} · 홀수 ${c.odd}개</div>
+        <div>1,000원당 기대 환급 <b>${c.ev[0]}원</b>(세후 ${c.ev[1]}원) · 평균 조합 ${c.ev_avg[0]}원 · 이론 최대 ${c.ev_floor[0]}원</div>
+        <div>합계 ${c.sum} · 홀수 ${c.odd}개${c.past4 ? ` · <span style="color:var(--warn)">과거 1등과 4개 이상 같음</span>` : ""}</div>
       </div>
       ${i != null ? `<button class="btn sm" data-copy="${c.nums.join(" ")}">복사</button>` : ""}
     </div>`;
@@ -209,13 +210,131 @@
       });
       lastCombos = res.combos;
       $("#gen-result").innerHTML = res.combos.map(comboHTML).join("") +
-        `<div class="note">당첨 확률은 모든 게임이 1/8,145,060 으로 같습니다. 기대 수령액은 최근 1년 평균 1등 총상금과 판매량 기준 추정치입니다.</div>`;
+        `<div class="note">당첨 확률은 모든 게임이 1/8,145,060 으로 같습니다. 기대 수령액은 최근 1년 평균 1등 총상금과 판매량 기준 추정치이고, 평균 조합은 세전 ${won(res.combos[0].expected_rank1_avg)} / 세후 ${won(res.combos[0].expected_rank1_net_avg)}입니다. 세후는 200만원 초과 시 3억원까지 22%, 초과분 33%(지방세 포함)를 뺀 금액입니다.</div>`;
       $$("[data-copy]", $("#gen-result")).forEach((b) => b.addEventListener("click", () => copy(b.dataset.copy)));
       $("#gen-copy").disabled = false;
+      $("#gen-save").disabled = false;
     } catch (e) { toast(e.message); }
     btn.disabled = false;
   });
   $("#gen-copy").addEventListener("click", () => copy(lastCombos.map((c, i) => `${String.fromCharCode(65 + i)}: ${c.nums.join(" ")}`).join("\n")));
+
+  $("#gen-save").addEventListener("click", async () => {
+    if (!lastCombos.length) return;
+    await addTickets(lastCombos.map((c) => c.nums), "번호 만들기");
+  });
+
+  // ---------------------------------------------------------------- 내 구매 기록
+  let M = null; // /api/tickets
+  function parseGames(text) {
+    const games = [], bad = [];
+    text.split(/\n/).map((l) => l.trim()).filter(Boolean).forEach((line, i) => {
+      const nums = (line.match(/\d+/g) || []).map(Number);
+      const uniq = [...new Set(nums)];
+      if (nums.length === 6 && uniq.length === 6 && uniq.every((n) => n >= 1 && n <= 45)) games.push(uniq.sort((a, b) => a - b));
+      else bad.push(i + 1);
+    });
+    return { games, bad };
+  }
+  async function addTickets(games, source, draw, memo) {
+    try {
+      M = await api("/api/tickets/add", { games, source, draw: draw || (S ? S.latest.no + 1 : null), memo: memo || "" });
+      renderMine();
+      toast(`${games.length}게임을 ${draw || S.latest.no + 1}회 기록에 담았습니다`);
+      return true;
+    } catch (e) { toast(e.message); return false; }
+  }
+  $("#mine-games").addEventListener("input", (e) => {
+    const { games, bad } = parseGames(e.target.value);
+    $("#mine-parse").textContent = e.target.value.trim()
+      ? `${games.length}게임 인식${bad.length ? ` · ${bad.join(", ")}번째 줄은 번호 6개가 아님` : ""}` : "";
+  });
+  $("#mine-add").addEventListener("click", async () => {
+    const { games, bad } = parseGames($("#mine-games").value);
+    if (!games.length) return toast("한 줄에 번호 6개씩 입력해 주세요");
+    if (bad.length) return toast(`${bad.join(", ")}번째 줄을 확인해 주세요`);
+    const draw = parseInt($("#mine-draw").value, 10);
+    if (await addTickets(games, "직접", draw, $("#mine-memo").value.trim())) {
+      $("#mine-games").value = ""; $("#mine-memo").value = ""; $("#mine-parse").textContent = "";
+    }
+  });
+  $("#mine-budget-save").addEventListener("click", async () => {
+    const amt = parseInt(($("#mine-budget-input").value || "0").replace(/[^\d]/g, ""), 10) || 0;
+    try { M = await api("/api/tickets/budget", { amount: amt }); renderMine(); toast(amt ? `이번 달 예산 ${won(amt)}` : "예산을 지웠습니다"); }
+    catch (e) { toast(e.message); }
+  });
+  $("#mine-list").addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-del]");
+    if (!b) return;
+    if (!confirm("이 기록을 지울까요?")) return;
+    try { M = await api("/api/tickets/delete", { id: b.dataset.del }); renderMine(); toast("지웠습니다"); }
+    catch (err) { toast(err.message); }
+  });
+  function gameBalls(g, done) {
+    if (!done) return balls(g.nums, null, "sm");
+    return `<div class="balls">${g.nums.map((n) => {
+      const hit = g.hits.includes(n);
+      return `<span class="ball sm ${ballClass(n)} ${hit ? "" : "miss"}">${n}</span>`;
+    }).join("")}</div>`;
+  }
+  const RANK_NAME = ["", "1등", "2등", "3등", "4등", "5등"];
+  function renderMine() {
+    if (!M) return;
+    const t = M.total, b = M.budget;
+    if (!$("#mine-draw").value) $("#mine-draw").value = M.next_draw;
+    $("#mine-stats").innerHTML = [
+      ["쓴 돈", won(t.spent), `추첨 전 ${t.pending_games}게임 포함`],
+      ["받은 돈", won(t.won), `1~5등 ${t.prizes.join(" / ")}회`],
+      ["손익", (t.net >= 0 ? "+" : "−") + won(Math.abs(t.net)), t.net >= 0 ? "이익" : "손실"],
+      ["환급률", `${t.return_pct}%`, "로또 평균 약 50%"],
+    ].map(([k, v, s]) => `<div class="card stat"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join("");
+    const pct = b.month ? Math.min(100, (b.month_spent / b.month) * 100) : 0;
+    $("#mine-budget").innerHTML = b.month
+      ? `<div>이번 달 <b>${won(b.month_spent)}</b> / 예산 ${won(b.month)}</div>
+         <div class="budget-bar"><i class="${b.over ? "over" : ""}" style="width:${pct}%"></i></div>
+         ${b.over ? `<div class="callout warn small">이번 달 예산을 넘었습니다. 이번 달은 여기서 멈추시길 권합니다.</div>` : `<div class="small muted">남은 예산 ${won(b.month - b.month_spent)}</div>`}`
+      : `<div class="muted small">예산이 없습니다. 한 달에 쓸 금액을 정해 두면 넘을 때 알려 드립니다.</div>`;
+    if (!M.tickets.length) { $("#mine-list").innerHTML = `<div class="muted">아직 기록이 없습니다. ‘번호 만들기’에서 만든 번호를 ‘구매 기록에 담기’로 넣거나, 위에 직접 입력하세요.</div>`; }
+    else {
+      $("#mine-list").innerHTML = M.tickets.map((r) => {
+        const done = r.status === "done";
+        const head = done
+          ? `<span class="small muted">${esc(r.result.date)} 결과</span> ${balls(r.result.nums, r.result.bonus, "sm")}`
+          : `<span class="pill warn">추첨 전</span>`;
+        return `<div class="ticket">
+          <div class="ticket-head">
+            <div><span class="t">${r.draw}회</span> <span class="small muted">· ${r.games.length}게임 · ${esc(r.source)}${r.memo ? " · " + esc(r.memo) : ""} · ${esc(r.created)}</span></div>
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${head}<button class="btn sm" data-del="${esc(r.id)}">삭제</button></div>
+          </div>
+          ${r.games.map((g, i) => `<div class="game-row"><span class="lbl">${String.fromCharCode(65 + (i % 26))}</span>${gameBalls(g, done)}
+            ${done ? (g.rank ? `<span class="rank win">${RANK_NAME[g.rank]} · ${won(g.amount)}${g.net !== g.amount ? ` (세후 ${won(g.net)})` : ""}</span>` : `<span class="rank small muted">${g.match}개 일치${g.bonus_hit ? " (+보너스)" : ""}</span>`) : ""}</div>`).join("")}
+          ${done ? `<div class="small muted">이 회차: ${won(r.cost)} 써서 ${won(r.won)} 받음</div>` : ""}
+        </div>`;
+      }).join("");
+    }
+    // 요약 화면: 가장 최근 결과가 나온 기록
+    // 결과가 나온 가장 최근 회차의 기록을 모두 합친다(같은 회차를 여러 번 나눠 적었을 수 있음)
+    const firstDone = M.tickets.find((r) => r.status === "done");
+    const recentDone = firstDone ? (() => {
+      const same = M.tickets.filter((r) => r.status === "done" && r.draw === firstDone.draw);
+      return { draw: firstDone.draw, games: same.flatMap((r) => r.games), won: same.reduce((n, r) => n + r.won, 0) };
+    })() : null;
+    const pending = M.tickets.filter((r) => r.status === "pending").reduce((n, r) => n + r.games.length, 0);
+    const box = $("#home-mine");
+    if (recentDone || pending) {
+      box.hidden = false;
+      const best = recentDone ? recentDone.games.reduce((a, g) => (g.match > a.match ? g : a), recentDone.games[0]) : null;
+      box.innerHTML = `<h2>내 구매 기록</h2>
+        ${recentDone ? `<div>${recentDone.draw}회 결과: ${recentDone.games.length}게임 중 ${recentDone.games.filter((g) => g.rank).length}게임 당첨
+          · 받은 돈 <b>${won(recentDone.won)}</b> · 가장 많이 맞힌 것 ${best.match}개</div>` : ""}
+        ${pending ? `<div class="small muted" style="margin-top:4px">추첨 전 ${pending}게임 — 결과가 나오면 자동으로 맞춰 봅니다.</div>` : ""}
+        <div style="margin-top:10px"><button class="btn sm" data-go="mine">기록 보기 →</button></div>`;
+      $("[data-go]", box).addEventListener("click", () => showView("mine"));
+    } else box.hidden = true;
+  }
+  async function loadMine() {
+    try { M = await api("/api/tickets"); renderMine(); } catch (e) { /* 서버 연결 실패는 load() 가 표시 */ }
+  }
 
   // ---------------------------------------------------------------- 내 번호 검사
   const picked = new Set();
@@ -330,24 +449,27 @@
     $("#heat").innerHTML = p.numbers.map((x) => {
       const a = Math.min(1, Math.abs(x.pct) / maxAbs);
       const bg = x.pct >= 0 ? `rgba(234, 120, 20, ${0.12 + a * 0.55})` : `rgba(16, 160, 110, ${0.12 + a * 0.55})`;
-      return `<div style="background:${bg}" title="${x.n}번: 1등 동반 당첨자 ${x.pct > 0 ? "+" : ""}${x.pct}%">${x.n}<small>${x.pct > 0 ? "+" : ""}${x.pct}%</small></div>`;
+      return `<div style="background:${bg}" title="${x.n}번: 수동 1등 동반 당첨자 ${x.pct > 0 ? "+" : ""}${x.pct}%">${x.n}<small>${x.pct > 0 ? "+" : ""}${x.pct}%</small></div>`;
     }).join("");
-    const h = p.holdout;
+    const h = p.holdout, m = S.money;
     $("#pop-check").innerHTML = `
-      <p class="small">모델을 <b>앞부분 회차로만</b> 만든 뒤, 한 번도 보지 않은 최근 ${h.draws}회에 적용했습니다.</p>
+      <p class="small">1등 당첨자는 <b>자동(${Math.round(p.auto_share * 100)}%)</b>과 <b>수동·반자동(${Math.round(p.manual_share * 100)}%)</b>으로 나뉩니다(${p.typed_from}회부터 공개).
+      자동은 기계가 무작위로 고르므로 인기와 무관하고, 사람이 고른 수동 당첨자에만 인기가 드러납니다. 모델을 <b>앞부분 회차로만</b> 만든 뒤 최근 ${h.draws}회에 적용했습니다.</p>
       <div class="grid g2">
-        <div class="card soft stat"><div class="k">모델이 ‘인기’로 본 회차(상위 1/4)</div><div class="v" style="color:var(--warn)">${h.popular_quarter}배</div><div class="s">1등 당첨자 수 ÷ 기대값</div></div>
-        <div class="card soft stat"><div class="k">모델이 ‘비인기’로 본 회차(하위 1/4)</div><div class="v" style="color:var(--good)">${h.unpopular_quarter}배</div><div class="s">1등 당첨자 수 ÷ 기대값</div></div>
+        <div class="card soft stat"><div class="k">‘비인기’로 본 회차(하위 1/4)</div><div class="v" style="color:var(--good)">${h.manual_unpopular}배</div><div class="s">수동 1등 당첨자 ÷ 기대값</div></div>
+        <div class="card soft stat"><div class="k">‘인기’로 본 회차(상위 1/4)</div><div class="v" style="color:var(--warn)">${h.manual_popular}배</div><div class="s">수동 1등 당첨자 ÷ 기대값</div></div>
       </div>
-      <p class="small" style="margin-top:12px">번호별 인기도로 5등 당첨자 수를 맞힌 상관계수 ${h.corr5}, 1등 당첨자 수와의 상관계수 ${h.corr1}.
-      예측이 실제로 들어맞는다는 뜻이지만 차이는 <b>10~25% 정도로 크지 않습니다</b>. 한국은 ‘자동’ 구매가 많아 사람의 선택 편향이 희석되기 때문입니다.</p>
-      <p class="small muted">${p.from}회 이후 ${fmt(p.rows)}회 자료, 과산포 ${p.dispersion}(보정함).</p>`;
+      <p class="small" style="margin-top:12px">같은 회차의 자동 당첨자는 ${h.auto_unpopular}배 / ${h.auto_popular}배로 차이가 없습니다 — 자동은 순수한 우연이라는 확인입니다(과산포 ${p.auto_dispersion}, 1이면 완전 무작위).
+      전체 1등 당첨자로 보면 ${h.total_unpopular}배 / ${h.total_popular}배입니다.</p>
+      <div class="callout warn small" style="margin-top:10px"><b>상한이 있습니다.</b> 자동 구매가 모든 조합에 고르게 퍼져 있어, 아무리 덜 인기인 조합도 동반 당첨자가 평균의 약 ${m.auto_floor}배 아래로는 내려가지 않습니다.
+      그래서 1,000원 1게임의 기대 환급은 평균 조합 약 ${m.ev_avg[0]}원(세후 ${m.ev_avg[1]}원), 이론상 최선도 약 ${m.ev_floor[0]}원(세후 ${m.ev_floor[1]}원)입니다. <b>어떤 번호도 1,000원을 넘지 못합니다.</b></div>
+      <p class="small muted">${p.from}회 이후 ${fmt(p.rows)}회 자료(구분 공개 ${fmt(p.typed)}회), 과산포 ${p.dispersion}(보정함).</p>`;
     $("#pop-table").innerHTML = `<tr><th>특징</th><th>설명</th><th class="num">1 늘 때 동반 당첨자</th><th class="num">t값</th><th>근거</th></tr>` +
       p.coefs.slice(1).map((c) => `<tr><td><b>${esc(c.label)}</b></td><td class="small muted">${esc(c.desc)}</td>
         <td class="num">${c.effect_pct > 0 ? "+" : ""}${c.effect_pct}%</td><td class="num">${c.t}</td>
         <td>${Math.abs(c.t) >= 2 ? '<span class="pill good">있음</span>' : '<span class="pill warn">약함</span>'}</td></tr>`).join("");
-    $("#pop-top").innerHTML = `<tr><th>회차</th><th>번호</th><th class="num">1등 인원</th><th class="num">기대 대비</th></tr>` +
-      p.top_shared.map((x) => `<tr><td>${x.no}회</td><td>${balls(x.nums, null, "sm")}</td><td class="num">${x.winners}명</td><td class="num">${x.times}배</td></tr>`).join("");
+    $("#pop-top").innerHTML = `<tr><th>회차</th><th>번호</th><th class="num">1등 인원</th><th class="num">자동 / 수동</th><th class="num">수동 기대 대비</th></tr>` +
+      p.top_shared.map((x) => `<tr><td>${x.no}회</td><td>${balls(x.nums, null, "sm")}</td><td class="num">${x.winners}명</td><td class="num">${x.auto} / ${x.manual}</td><td class="num">${x.times}배</td></tr>`).join("");
   }
 
   // ---------------------------------------------------------------- AI 상담
@@ -545,6 +667,7 @@
       return;
     }
     renderHome(); renderStats(); renderBacktest(); renderPopular();
+    loadMine();
   }
   load().then(() => {
     const v = store.get("view", "home");

@@ -3,3 +3,4 @@ __pycache__/
 data/*.tmp
 .DS_Store
 launcher/실행기록.txt
+data/tickets.json

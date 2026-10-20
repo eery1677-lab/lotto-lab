@@ -249,3 +249,18 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
   .slip button { width: 100%; height: 40px; }
   .card { padding: 14px; }
 }
+
+/* ---------- 내 구매 기록 */
+.ball.miss { opacity: .28; }
+.ticket { border-top: 1px solid var(--line); padding: 14px 0; }
+.ticket:first-child { border-top: 0; padding-top: 4px; }
+.ticket-head { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.ticket-head .t { font-weight: 700; }
+.game-row { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; padding: 5px 0; }
+.game-row .lbl { width: 22px; color: var(--muted); font-size: 13px; }
+.rank { font-size: 13px; font-weight: 700; }
+.rank.win { color: var(--good); }
+.budget-bar { height: 12px; border-radius: 99px; background: var(--panel-2); border: 1px solid var(--line); overflow: hidden; margin: 8px 0 4px; }
+.budget-bar i { display: block; height: 100%; background: var(--accent); }
+.budget-bar i.over { background: var(--warn); }
+code { font-size: 13px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 0 5px; }

@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import lotto_data
+import tickets
 from analysis import Analyzer
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -150,8 +151,8 @@ def build_context(a, question):
             f"[검사한 번호 {', '.join(map(str, six))}]\n"
             f"- 1등 확률 1/8,145,060 (다른 조합과 동일)\n"
             f"- 인기도 {ev['popularity']}배(1.0=평균 조합), 무작위 조합 중 하위 {ev['percentile']}% 위치(낮을수록 덜 인기)\n"
-            f"- 1등이면 함께 당첨될 사람 평균 {ev['co_winners']}명 추정, 1등 기대 수령액(세전) 약 {ev['expected_rank1']:,}원 "
-            f"(평균 조합 {ev['expected_rank1_avg']:,}원)\n"
+            f"- 1등이면 함께 당첨될 사람 평균 {ev['co_winners']}명 추정, 1등 기대 수령액 세전 약 {ev['expected_rank1']:,}원 "
+            f"/ 세후 약 {ev['expected_rank1_net']:,}원 (평균 조합 세전 {ev['expected_rank1_avg']:,}원 / 세후 {ev['expected_rank1_net_avg']:,}원)\n"
             f"- 1회부터 매주 이 번호를 샀다면: 1~5등 {hc['prizes'][0]}/{hc['prizes'][1]}/{hc['prizes'][2]}/{hc['prizes'][3]}/{hc['prizes'][4]}회, "
             f"쓴 돈 {hc['spent']:,}원, 받은 돈 {hc['won']:,}원, 최고 {hc['best']['match']}개 일치"
             + (f"({hc['best']['no']}회)" if hc["best"]["no"] else "")
@@ -159,9 +160,13 @@ def build_context(a, question):
     elif NUM_REQUEST.search(question):
         combos = a.generate(5, "unpopular", strength=10)
         lines = [f"- {', '.join(map(str, c['nums']))} : 인기도 {c['popularity']}배, 1등 동반 당첨자 약 {c['co_winners']}명, "
-                 f"1등 기대 수령액 약 {c['expected_rank1']:,}원" for c in combos]
+                 f"1등 기대 수령액 세전 약 {c['expected_rank1']:,}원 / 세후 약 {c['expected_rank1_net']:,}원" for c in combos]
         extra.append("[코드가 만든 조합 — 운영체제 난수로 무작위 생성 후 비인기 하위 10%만 남김. 당첨 확률은 다른 조합과 같음]\n"
-                     + "\n".join(lines) + f"\n(평균 조합의 1등 기대 수령액 약 {combos[0]['expected_rank1_avg']:,}원)")
+                     + "\n".join(lines) + f"\n(평균 조합의 1등 기대 수령액 세전 약 {combos[0]['expected_rank1_avg']:,}원 "
+                     f"/ 세후 약 {combos[0]['expected_rank1_net_avg']:,}원)")
+    if re.search(r"내\s*(번호|기록|구매|성적)|구매|샀|손익|얼마나\s*(잃|땄|벌)|예산", question):
+        mine = tickets.facts_text(a.draws, a.draws[-1]["no"] + 1)
+        extra.append(mine or "[대장님 구매 기록] 저장된 구매 기록이 없음.")
     return a.facts_text() + ("\n\n" + "\n\n".join(extra) if extra else "")
 
 
@@ -212,6 +217,9 @@ class Handler(BaseHTTPRequestHandler):
                            "error": _state["last_error"],
                            "next_draw": _next_draw_time(a.draws[-1]["date"]).strftime("%Y-%m-%d")}
             return self._json(s)
+        if path == "/api/tickets":
+            a = analyzer()
+            return self._json(tickets.report(a.draws, a.draws[-1]["no"] + 1))
         if path == "/api/draws":
             return self._json(analyzer().draws)
         if path == "/api/lms/models":
@@ -268,6 +276,20 @@ class Handler(BaseHTTPRequestHandler):
             if len(nums) != 6 or len(set(nums)) != 6 or not all(1 <= x <= 45 for x in nums):
                 return self._json({"error": "1~45 사이 서로 다른 숫자 6개를 넣어 주세요"}, 400)
             return self._json({"eval": a.evaluate(nums), "history": a.history_check(nums)})
+        if path.startswith("/api/tickets/"):
+            try:
+                if path == "/api/tickets/add":
+                    tickets.add(body.get("draw") or a.draws[-1]["no"] + 1, body.get("games"),
+                                body.get("source") or "직접", body.get("memo") or "")
+                elif path == "/api/tickets/delete":
+                    tickets.delete(str(body.get("id", "")))
+                elif path == "/api/tickets/budget":
+                    tickets.set_budget(body.get("amount") or 0)
+                else:
+                    return self._json({"error": "없음"}, 404)
+            except (ValueError, TypeError) as e:
+                return self._json({"error": str(e)}, 400)
+            return self._json(tickets.report(a.draws, a.draws[-1]["no"] + 1))
         if path == "/api/chat":
             return self._chat(a, body)
         return self._json({"error": "없음"}, 404)
