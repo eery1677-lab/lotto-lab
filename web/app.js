@@ -1,0 +1,553 @@
+/* 로또 확률 연구소 — 화면. 모든 숫자는 서버(analysis.py)가 계산한 값을 그대로 보여 준다. */
+(function () {
+  "use strict";
+
+  const $ = (s, el) => (el || document).querySelector(s);
+  const $$ = (s, el) => Array.from((el || document).querySelectorAll(s));
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const fmt = (n) => Number(n).toLocaleString("ko-KR");
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem("lottolab_" + k); return v === null ? d : v; } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem("lottolab_" + k, v); } catch (e) { /* 저장 불가 환경 */ } },
+  };
+
+  let S = null; // /api/summary
+
+  // ---------------------------------------------------------------- 공통
+  function won(n) {
+    n = Math.round(n);
+    if (Math.abs(n) >= 1e8) {
+      const eok = Math.floor(n / 1e8);
+      const man = Math.round((n % 1e8) / 1e4);
+      return man ? `${fmt(eok)}억 ${fmt(man)}만원` : `${fmt(eok)}억원`;
+    }
+    if (Math.abs(n) >= 1e4) return `${fmt(Math.round(n / 1e4))}만원`;
+    return `${fmt(n)}원`;
+  }
+  function ballClass(n) { return n <= 10 ? "y" : n <= 20 ? "b" : n <= 30 ? "r" : n <= 40 ? "g" : "gr"; }
+  function ball(n, size) { return `<span class="ball ${ballClass(n)} ${size || ""}">${n}</span>`; }
+  function balls(nums, bonus, size) {
+    return `<div class="balls">${nums.map((n) => ball(n, size)).join("")}${bonus ? `<span class="plus">+</span>${ball(bonus, size)}` : ""}</div>`;
+  }
+  function pPill(p) {
+    return p >= 0.05
+      ? `<span class="pill good" title="p값 ${p}">무작위와 일치 · p=${p}</span>`
+      : `<span class="pill warn" title="p값 ${p}">차이 있음 · p=${p}</span>`;
+  }
+  function toast(msg) {
+    const t = $("#toast");
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => t.classList.remove("show"), 1800);
+  }
+  async function api(path, body) {
+    const r = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {});
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `오류 ${r.status}`);
+    return j;
+  }
+  function copy(text) {
+    (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject())
+      .then(() => toast("복사했습니다"))
+      .catch(() => {
+        const ta = document.createElement("textarea");
+        ta.value = text; document.body.appendChild(ta); ta.select();
+        try { document.execCommand("copy"); toast("복사했습니다"); } catch (e) { toast("복사 실패"); }
+        ta.remove();
+      });
+  }
+
+  // ---------------------------------------------------------------- 탭
+  function showView(v) {
+    $$(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === v));
+    $$(".view").forEach((s) => s.classList.toggle("active", s.id === "view-" + v));
+    store.set("view", v);
+    if (v === "ai") initChat();
+    window.scrollTo(0, 0);
+  }
+  $$(".nav-btn").forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
+
+  // 화면 밝기
+  (function theme() {
+    const saved = store.get("theme", "");
+    if (saved) document.documentElement.dataset.theme = saved;
+    $("#theme-btn").addEventListener("click", () => {
+      const dark = document.documentElement.dataset.theme
+        ? document.documentElement.dataset.theme === "dark"
+        : matchMedia("(prefers-color-scheme: dark)").matches;
+      const next = dark ? "light" : "dark";
+      document.documentElement.dataset.theme = next;
+      store.set("theme", next);
+    });
+  })();
+
+  // ---------------------------------------------------------------- SVG 차트
+  function barChart(opts) {
+    // opts: labels, values, expected(선택), band([lo,hi] 선택), highlight(i=>bool), height, labelEvery
+    const W = 900, H = opts.height || 260, L = 44, R = 10, T = 12, B = 30;
+    const n = opts.values.length;
+    const maxV = Math.max(...opts.values, ...(opts.expected || [0]), opts.band ? opts.band[1] : 0) * 1.08;
+    const minV = opts.min != null ? opts.min : 0;
+    const x = (i) => L + (i + 0.5) * ((W - L - R) / n);
+    const y = (v) => T + (H - T - B) * (1 - (v - minV) / (maxV - minV));
+    const bw = Math.max(2, ((W - L - R) / n) * 0.66);
+    let s = `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img">`;
+    for (let k = 0; k <= 4; k++) {
+      const v = minV + ((maxV - minV) * k) / 4;
+      s += `<line class="axis" x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" />`;
+      s += `<text x="${L - 6}" y="${y(v) + 4}" text-anchor="end">${opts.fmtY ? opts.fmtY(v) : Math.round(v)}</text>`;
+    }
+    if (opts.band) s += `<rect class="band" x="${L}" width="${W - L - R}" y="${y(opts.band[1])}" height="${y(opts.band[0]) - y(opts.band[1])}" />`;
+    opts.values.forEach((v, i) => {
+      const hi = opts.highlight && opts.highlight(i);
+      s += `<rect class="bar-n ${hi ? "hi" : ""}" x="${x(i) - bw / 2}" y="${y(v)}" width="${bw}" height="${Math.max(0, y(minV) - y(v))}" rx="2"><title>${esc(opts.labels[i])}: ${opts.fmtTip ? opts.fmtTip(v, i) : fmt(v)}</title></rect>`;
+      if (!opts.labelEvery || i % opts.labelEvery === 0 || i === n - 1)
+        s += `<text x="${x(i)}" y="${H - 10}" text-anchor="middle">${esc(opts.labels[i])}</text>`;
+    });
+    if (opts.expected) {
+      if (opts.expected.length === 1) {
+        s += `<line class="exp" x1="${L}" x2="${W - R}" y1="${y(opts.expected[0])}" y2="${y(opts.expected[0])}" />`;
+      } else {
+        s += `<polyline class="exp" points="${opts.expected.map((v, i) => `${x(i)},${y(v)}`).join(" ")}" />`;
+      }
+    }
+    return s + "</svg>";
+  }
+
+  // ---------------------------------------------------------------- 요약
+  function renderHome() {
+    const d = S.latest, m = S.money, r = S.randomness, b = S.backtest;
+    $("#latest").innerHTML = `
+      <div>
+        <div class="title">최신 회차 · ${esc(d.date)} 추첨</div>
+        <div class="no">${d.no}회</div>
+        <div class="small muted">1등 ${fmt(d.winners[0])}명 · 1인당 ${won(d.amounts[0])}</div>
+      </div>
+      ${balls(d.nums, d.bonus, "lg")}`;
+    const tests = [r.freq_test.p, r.sum.test.p, r.odd.test.p, r.repeat.test.p, r.consecutive.p];
+    const passed = tests.filter((p) => p >= 0.05).length;
+    const beat = b.strategies.filter((s) => s.key !== "random" && s.p < 0.05 && s.mean > b.theory_mean).length;
+    $("#home-stats").innerHTML = [
+      ["1등 확률", "1 / 8,145,060", "어떤 번호를 골라도 같음"],
+      ["1,000원당 돌아오는 돈", `약 ${Math.round(m.payout_pct_recent * 10)}원`, `최근 52회 환급률 ${m.payout_pct_recent}%`],
+      ["무작위성 검정", `${passed} / ${tests.length} 통과`, "통과 = 완전 무작위와 구별 안 됨"],
+      ["예측법 7가지", beat ? `${beat}개가 무작위보다 나음` : "전부 무작위와 같음", `${fmt(b.tested)}회 실제 결과로 검증`],
+    ].map(([k, v, s]) => `<div class="card stat"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join("");
+    $("#home-conclusion").innerHTML = `
+      <b>당첨 번호를 맞히는 방법은 없습니다.</b> ${fmt(S.randomness.draws)}회 결과는 완전 무작위와 구별되지 않고,
+      유명한 예측법들도 무작위로 고른 것과 성적이 같았습니다.<br><br>
+      <b>대신 할 수 있는 것:</b> 당첨됐을 때 나눠 가질 사람이 적은 조합을 고르는 것. 평균 조합은 1등이 되면
+      약 <b>${m.lambda_avg}명</b>과 나누게 됩니다(최근 1년 판매량 기준).
+      <div style="margin-top:12px"><button class="btn primary sm" data-go="gen">비인기 조합 만들기 →</button></div>`;
+    $("#home-conclusion [data-go]").addEventListener("click", () => showView("gen"));
+    const v = [
+      ["번호별 출현 횟수", r.freq_test.p],
+      ["6개 합계 분포", r.sum.test.p],
+      ["홀짝 비율", r.odd.test.p],
+      ["직전 회차와의 관계", r.repeat.test.p],
+      ["연속 번호 비율", r.consecutive.p],
+    ];
+    $("#home-verdicts").innerHTML = v.map(([k, p]) => `<div class="verdict"><span>${k}</span>${pPill(p)}</div>`).join("");
+    $("#recent").innerHTML = S.recent.map((x) => `
+      <tr><td><b>${x.no}회</b><div class="small muted">${esc(x.date)}</div></td>
+      <td>${balls(x.nums, x.bonus, "sm")}</td>
+      <td class="small muted" style="text-align:right;white-space:nowrap">1등 ${x.winners[0]}명<br>${x.winners[0] ? won(x.amounts[0]) : "이월"}</td></tr>`).join("");
+    const st = S.status;
+    $("#data-status").innerHTML = `자료: ${S.latest.no}회까지<br><span class="small">다음 추첨 ${esc(st.next_draw)}</span>
+      ${st.updating ? "<br>새 회차 확인 중…" : ""}${st.error ? `<br><span style="color:var(--warn)">업데이트 실패(저장된 자료 사용)</span>` : ""}
+      <br><button class="theme-btn" id="update-btn">지금 새 회차 확인</button>`;
+    $("#update-btn").addEventListener("click", async (e) => {
+      e.target.disabled = true; e.target.textContent = "확인 중…";
+      try {
+        const res = await api("/api/update", {});
+        toast(res.ok ? `${res.latest}회까지 최신입니다` : "업데이트 실패: " + (res.error || ""));
+        await load();
+      } catch (err) { toast(err.message); }
+    });
+    $("#prob-list").innerHTML = ["1등 (6개)", "2등 (5개+보너스)", "3등 (5개)", "4등 (4개)", "5등 (3개)"]
+      .map((k, i) => `<li>${k}: ${m.prob.rank[i]}</li>`).join("");
+    $("#ev-text").innerHTML = `동행복권 전 회차의 당첨금 총액을 판매액으로 나누면 <b>${m.payout_pct_all}%</b>(최근 52회 ${m.payout_pct_recent}%)입니다.
+      1,000원을 내면 평균 약 ${Math.round(m.payout_pct_recent * 10)}원이 돌아온다는 뜻이고, 나머지는 복권기금·운영비입니다.
+      어떤 번호 전략도 이 비율을 바꾸지 못합니다. 전 조합을 사는 비용은 ${won(m.buy_all_cost)}입니다.`;
+    $("#gen-why").innerHTML = `1등 상금은 당첨자 수로 나눕니다. 최근 1년 평균 1등 총상금은 약 <b>${won(m.rank1_pool)}</b>이고, 평균적인 조합이 1등이 되면
+      약 ${m.lambda_avg}명이 함께 당첨됩니다. 사람들이 생일·행운의 숫자·과거 당첨번호를 많이 고르기 때문에 그런 번호가 섞인 조합은 동반 당첨자가 더 많습니다.
+      실제로 ${m.most_rank1.no}회(${esc(m.most_rank1.date)})는 1등이 <b>${m.most_rank1.winners}명</b>이라 1인당 ${won(m.most_rank1.amount)}에 그쳤습니다.
+      비인기 조합은 <b>당첨 확률은 그대로, 당첨됐을 때의 몫만 늘립니다.</b>`;
+  }
+
+  // ---------------------------------------------------------------- 번호 만들기
+  function segValue(id) { return ($(`#${id} button.on`) || {}).dataset ? $(`#${id} button.on`).dataset.v : null; }
+  $$(".seg").forEach((seg) => seg.addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    $$("button", seg).forEach((x) => x.classList.toggle("on", x === b));
+    if (seg.id === "gen-mode") $("#gen-strength-wrap").style.display = b.dataset.v === "random" ? "none" : "";
+  }));
+  let lastCombos = [];
+  function comboHTML(c, i) {
+    const pct = Math.min(100, (c.popularity / 1.3) * 100);
+    const gain = c.expected_rank1 / c.expected_rank1_avg - 1;
+    return `<div class="combo">
+      <div><div class="small muted" style="margin-bottom:4px">${i != null ? String.fromCharCode(65 + i) + " 게임" : ""}</div>${balls(c.nums)}</div>
+      <div class="meta">
+        인기도 <b>${c.popularity}배</b> (1.0 = 평균 조합, 하위 ${c.percentile}%)
+        <div class="bar" title="회색 선 = 평균 조합"><i style="width:${pct}%;background:${c.popularity <= 1 ? "var(--good)" : "var(--warn)"}"></i><span class="avg" style="left:${100 / 1.3}%"></span></div>
+        1등이면 함께 당첨될 사람 약 <b>${c.co_winners}명</b> · 기대 수령액(세전) <b>${won(c.expected_rank1)}</b>
+        <span style="color:${gain >= 0 ? "var(--good)" : "var(--warn)"}">(평균 조합 대비 ${gain >= 0 ? "+" : ""}${(gain * 100).toFixed(1)}%)</span>
+        <div>합계 ${c.sum} · 홀수 ${c.odd}개</div>
+      </div>
+      ${i != null ? `<button class="btn sm" data-copy="${c.nums.join(" ")}">복사</button>` : ""}
+    </div>`;
+  }
+  $("#gen-btn").addEventListener("click", async () => {
+    const btn = $("#gen-btn");
+    btn.disabled = true;
+    try {
+      const res = await api("/api/generate", {
+        count: +segValue("gen-count"), mode: segValue("gen-mode"), strength: +segValue("gen-strength"),
+      });
+      lastCombos = res.combos;
+      $("#gen-result").innerHTML = res.combos.map(comboHTML).join("") +
+        `<div class="note">당첨 확률은 모든 게임이 1/8,145,060 으로 같습니다. 기대 수령액은 최근 1년 평균 1등 총상금과 판매량 기준 추정치입니다.</div>`;
+      $$("[data-copy]", $("#gen-result")).forEach((b) => b.addEventListener("click", () => copy(b.dataset.copy)));
+      $("#gen-copy").disabled = false;
+    } catch (e) { toast(e.message); }
+    btn.disabled = false;
+  });
+  $("#gen-copy").addEventListener("click", () => copy(lastCombos.map((c, i) => `${String.fromCharCode(65 + i)}: ${c.nums.join(" ")}`).join("\n")));
+
+  // ---------------------------------------------------------------- 내 번호 검사
+  const picked = new Set();
+  $("#slip").innerHTML = Array.from({ length: 45 }, (_, i) => `<button data-n="${i + 1}">${i + 1}</button>`).join("");
+  function syncSlip() {
+    $$("#slip button").forEach((b) => b.classList.toggle("on", picked.has(+b.dataset.n)));
+    $("#pick-count").textContent = `${picked.size}/6`;
+  }
+  $("#slip").addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    const n = +b.dataset.n;
+    if (picked.has(n)) picked.delete(n);
+    else if (picked.size < 6) picked.add(n);
+    else toast("6개까지 고를 수 있습니다");
+    syncSlip();
+  });
+  $("#check-text").addEventListener("input", (e) => {
+    const nums = (e.target.value.match(/\d+/g) || []).map(Number).filter((n) => n >= 1 && n <= 45);
+    picked.clear();
+    nums.slice(0, 6).forEach((n) => picked.add(n));
+    syncSlip();
+  });
+  $("#check-clear").addEventListener("click", () => { picked.clear(); $("#check-text").value = ""; syncSlip(); });
+  $("#check-btn").addEventListener("click", async () => {
+    if (picked.size !== 6) return toast("서로 다른 번호 6개를 골라 주세요");
+    try {
+      const res = await api("/api/check", { nums: [...picked] });
+      const h = res.history;
+      const ranks = ["1등", "2등", "3등", "4등", "5등"];
+      $("#check-result").innerHTML = `
+        <h2>검사 결과</h2>
+        ${comboHTML(res.eval)}
+        <h3 style="margin-top:14px">2002년 1회부터 매주 이 번호를 샀다면</h3>
+        <table class="tbl"><tr>${ranks.map((r) => `<th class="num">${r}</th>`).join("")}</tr>
+        <tr>${h.prizes.map((v) => `<td class="num">${v}회</td>`).join("")}</tr></table>
+        <div class="grid g2" style="margin-top:12px">
+          <div class="stat"><div class="k">쓴 돈</div><div class="v">${won(h.spent)}</div></div>
+          <div class="stat"><div class="k">받은 돈</div><div class="v">${won(h.won)}</div><div class="s">${h.spent ? `환급률 ${(h.won / h.spent * 100).toFixed(1)}%` : ""}</div></div>
+        </div>
+        <div class="note">가장 많이 맞힌 것: ${h.best.match}개${h.best.no ? ` (${h.best.no}회)` : ""}.
+        ${h.exact.length ? `<b>이 조합은 ${h.exact.join(", ")}회 1등 번호와 같습니다</b> — 같은 확률이지만 따라 사는 사람이 많아 나눠 가질 가능성이 큽니다.` : ""}
+        과거 성적은 앞으로의 확률과 무관합니다.</div>`;
+    } catch (e) { toast(e.message); }
+  });
+
+  // ---------------------------------------------------------------- 무작위성 검정
+  function renderStats() {
+    const r = S.randomness;
+    const lo = r.expected_per_number - 1.96 * r.sd_per_number, hi = r.expected_per_number + 1.96 * r.sd_per_number;
+    $("#freq-pill").innerHTML = pPill(r.freq_test.p);
+    $("#freq-chart").innerHTML = barChart({
+      labels: r.numbers.map((x) => x.n), values: r.numbers.map((x) => x.count), band: [lo, hi],
+      expected: [r.expected_per_number], highlight: (i) => Math.abs(r.numbers[i].z) >= 1.96,
+      min: Math.floor(lo * 0.8 / 10) * 10, labelEvery: 2,
+      fmtTip: (v, i) => `${v}회 (기대 ${r.expected_per_number}회, z=${r.numbers[i].z})`,
+    });
+    $("#freq-note").innerHTML = `${fmt(r.draws)}회 × 6개. 번호당 기대 ${r.expected_per_number}회. 95% 범위를 벗어난 번호는 <b>${r.outside_95}개</b>인데,
+      완전 무작위여도 45개 중 약 ${r.outside_95_expected}개는 벗어나는 것이 정상입니다. 카이제곱 ${r.freq_test.stat} (자유도 ${r.freq_test.df}), p=${r.freq_test.p}.
+      최근 100회만 봐도 p=${r.recent100_test.p} — “요즘 잘 나오는 번호”도 우연의 범위입니다.`;
+    $("#sum-pill").innerHTML = pPill(r.sum.test.p);
+    $("#sum-chart").innerHTML = barChart({ labels: r.sum.labels, values: r.sum.observed, expected: r.sum.expected, labelEvery: 3, height: 240,
+      fmtTip: (v, i) => `${v}회 (이론 ${r.sum.expected[i]}회)` });
+    $("#sum-note").innerHTML = `막대 = 실제, 점선 = 8,145,060개 조합 전체로 계산한 이론값. 실제 평균 ${r.sum.mean} / 이론 ${r.sum.theory_mean}.
+      “합계 100~175 구간이 잘 나온다”는 말은 맞지만, 그 구간에 속하는 조합이 원래 많기 때문입니다.`;
+    $("#odd-pill").innerHTML = pPill(r.odd.test.p);
+    $("#odd-chart").innerHTML = barChart({ labels: [0, 1, 2, 3, 4, 5, 6].map((k) => `${k}개`), values: r.odd.observed, expected: r.odd.expected, height: 220,
+      fmtTip: (v, i) => `${v}회 (이론 ${r.odd.expected[i]}회)` });
+    $("#rep-pill").innerHTML = pPill(r.repeat.test.p);
+    $("#rep-chart").innerHTML = barChart({ labels: [0, 1, 2, 3, 4, 5, 6].map((k) => `${k}개`), values: r.repeat.observed, expected: r.repeat.expected, height: 220,
+      fmtTip: (v, i) => `${v}회 (이론 ${r.repeat.expected[i]}회)` });
+    const c = r.consecutive, dup = r.duplicates;
+    $("#misc").innerHTML = `
+      <div class="verdict" style="margin-bottom:8px"><span>연속 번호가 있는 회차 <b>${c.ratio}%</b> (이론 ${c.theory}%)</span>${pPill(c.p)}</div>
+      <p class="small">연속 번호(예: 12·13)는 생각보다 자주 나옵니다 — 이론적으로 절반 이상의 회차에 있습니다. “연속 번호는 피하라”는 말은 근거가 없습니다.</p>
+      <div class="verdict"><span>같은 6개 조합이 두 번 나온 적</span><b>${dup.found.length ? dup.found.map((x) => x.join("·") + "회").join(", ") : "없음"}</b></div>
+      <p class="small">${fmt(r.draws)}회 동안 같은 조합이 한 번이라도 다시 나올 확률은 약 ${dup.chance}%입니다(생일 문제).</p>`;
+    const rows = r.numbers.slice().sort((a, b) => b.count - a.count);
+    $("#num-table").innerHTML = `<tr><th>번호</th><th class="num">출현</th><th class="num">기대와 차이(z)</th><th class="num">보너스</th><th class="num">안 나온 지</th><th class="num">최장 공백</th></tr>` +
+      rows.map((x) => `<tr><td>${ball(x.n, "sm")}</td><td class="num">${x.count}</td><td class="num" style="color:${Math.abs(x.z) >= 1.96 ? "var(--warn)" : "inherit"}">${x.z > 0 ? "+" : ""}${x.z}</td>
+        <td class="num">${x.bonus}</td><td class="num">${x.gap}회</td><td class="num">${x.max_gap}회</td></tr>`).join("");
+  }
+
+  // ---------------------------------------------------------------- 예측법 검증
+  function renderBacktest() {
+    const b = S.backtest;
+    $("#bt-range").textContent = `(${b.from}~${b.to}회, ${fmt(b.tested)}회)`;
+    const band = [b.theory_mean - 1.96 * b.sd_mean, b.theory_mean + 1.96 * b.sd_mean];
+    $("#bt-chart").innerHTML = barChart({
+      labels: b.strategies.map((s) => s.label.replace(/\(.+\)/, "")), values: b.strategies.map((s) => s.mean),
+      expected: [b.theory_mean], band, min: 0.7, height: 260, fmtY: (v) => v.toFixed(2),
+      fmtTip: (v, i) => `평균 ${v}개, p=${b.strategies[i].p}`,
+    });
+    $("#bt-table").innerHTML = `<tr><th>방법</th><th class="num">평균 맞힌 개수</th><th class="num">p값</th><th class="num">3개 이상</th><th class="num">5등/4등/3등/2등/1등</th><th class="num">쓴 돈 → 받은 돈</th><th class="num">환급률</th></tr>` +
+      b.strategies.map((s) => `<tr class="${s.key === "random" ? "base" : ""}">
+        <td><b>${esc(s.label)}</b><div class="small muted">${esc(s.desc)}</div></td>
+        <td class="num">${s.mean.toFixed(3)}</td><td class="num">${s.p >= 0.05 ? s.p : `<b style="color:var(--warn)">${s.p}</b>`}</td>
+        <td class="num">${s.hits3}회 (${s.hits3_rate}%)</td>
+        <td class="num">${[4, 3, 2, 1, 0].map((k) => s.prizes[k]).join(" / ")}</td>
+        <td class="num">${won(s.spent)} → ${won(s.won)}</td><td class="num">${s.return_pct}%</td></tr>`).join("");
+    const best = b.strategies.slice().sort((x, y) => y.mean - x.mean)[0];
+    $("#bt-note").innerHTML = `이론값: 한 게임은 평균 <b>${b.theory_mean}개</b>를 맞히고, 3개 이상 맞힐 확률은 ${b.theory_hits3_rate}%입니다.
+      모든 방법의 p값이 0.05보다 크면 “무작위와 구별되지 않는다”는 뜻입니다. 가장 높게 나온 ‘${esc(best.label)}’(${best.mean.toFixed(3)}개)도 운으로 생기는 범위 안입니다
+      — 방법을 8개나 비교하면 그중 하나는 우연히 좋아 보이기 마련입니다(다중 비교).
+      환급률이 이론(약 50%)보다 낮은 것은 고액 당첨이 드물어 한 사람이 1,000여 게임만 사서는 평균에 못 미치기 때문입니다.`;
+  }
+
+  // ---------------------------------------------------------------- 인기 번호
+  function renderPopular() {
+    const p = S.popularity;
+    const maxAbs = Math.max(...p.numbers.map((x) => Math.abs(x.pct)), 1);
+    $("#heat").innerHTML = p.numbers.map((x) => {
+      const a = Math.min(1, Math.abs(x.pct) / maxAbs);
+      const bg = x.pct >= 0 ? `rgba(234, 120, 20, ${0.12 + a * 0.55})` : `rgba(16, 160, 110, ${0.12 + a * 0.55})`;
+      return `<div style="background:${bg}" title="${x.n}번: 1등 동반 당첨자 ${x.pct > 0 ? "+" : ""}${x.pct}%">${x.n}<small>${x.pct > 0 ? "+" : ""}${x.pct}%</small></div>`;
+    }).join("");
+    const h = p.holdout;
+    $("#pop-check").innerHTML = `
+      <p class="small">모델을 <b>앞부분 회차로만</b> 만든 뒤, 한 번도 보지 않은 최근 ${h.draws}회에 적용했습니다.</p>
+      <div class="grid g2">
+        <div class="card soft stat"><div class="k">모델이 ‘인기’로 본 회차(상위 1/4)</div><div class="v" style="color:var(--warn)">${h.popular_quarter}배</div><div class="s">1등 당첨자 수 ÷ 기대값</div></div>
+        <div class="card soft stat"><div class="k">모델이 ‘비인기’로 본 회차(하위 1/4)</div><div class="v" style="color:var(--good)">${h.unpopular_quarter}배</div><div class="s">1등 당첨자 수 ÷ 기대값</div></div>
+      </div>
+      <p class="small" style="margin-top:12px">번호별 인기도로 5등 당첨자 수를 맞힌 상관계수 ${h.corr5}, 1등 당첨자 수와의 상관계수 ${h.corr1}.
+      예측이 실제로 들어맞는다는 뜻이지만 차이는 <b>10~25% 정도로 크지 않습니다</b>. 한국은 ‘자동’ 구매가 많아 사람의 선택 편향이 희석되기 때문입니다.</p>
+      <p class="small muted">${p.from}회 이후 ${fmt(p.rows)}회 자료, 과산포 ${p.dispersion}(보정함).</p>`;
+    $("#pop-table").innerHTML = `<tr><th>특징</th><th>설명</th><th class="num">1 늘 때 동반 당첨자</th><th class="num">t값</th><th>근거</th></tr>` +
+      p.coefs.slice(1).map((c) => `<tr><td><b>${esc(c.label)}</b></td><td class="small muted">${esc(c.desc)}</td>
+        <td class="num">${c.effect_pct > 0 ? "+" : ""}${c.effect_pct}%</td><td class="num">${c.t}</td>
+        <td>${Math.abs(c.t) >= 2 ? '<span class="pill good">있음</span>' : '<span class="pill warn">약함</span>'}</td></tr>`).join("");
+    $("#pop-top").innerHTML = `<tr><th>회차</th><th>번호</th><th class="num">1등 인원</th><th class="num">기대 대비</th></tr>` +
+      p.top_shared.map((x) => `<tr><td>${x.no}회</td><td>${balls(x.nums, null, "sm")}</td><td class="num">${x.winners}명</td><td class="num">${x.times}배</td></tr>`).join("");
+  }
+
+  // ---------------------------------------------------------------- AI 상담
+  const chat = { inited: false, history: [], busy: false, ctrl: null };
+  function lmsBase() { return $("#lms-base").value.trim(); }
+  async function loadModels() {
+    const sel = $("#lms-model"), dot = $("#lms-dot");
+    sel.innerHTML = `<option value="">연결 중…</option>`;
+    dot.className = "dot";
+    try {
+      const res = await api("/api/lms/models?base=" + encodeURIComponent(lmsBase()));
+      const ms = res.models || [];
+      if (!ms.length) throw new Error("모델 없음");
+      ms.sort((a, b) => (b.loaded - a.loaded) || a.id.localeCompare(b.id));
+      const saved = store.get("model", "");
+      sel.innerHTML = ms.map((m) => `<option value="${esc(m.id)}">${m.loaded ? "● " : "○ "}${esc(m.id)}${m.ctx ? ` (${Math.round(m.ctx / 1024)}K)` : ""}</option>`).join("");
+      sel.value = ms.some((m) => m.id === saved) ? saved : (ms.find((m) => m.loaded) || ms[0]).id;
+      dot.className = "dot ok";
+      dot.title = "LM Studio 연결됨 (● = 로드된 모델, ○ 는 고르면 LM Studio 가 불러옴)";
+    } catch (e) {
+      sel.innerHTML = `<option value="">LM Studio 연결 안 됨</option>`;
+      dot.className = "dot no";
+      dot.title = "LM Studio 를 켜고 Developer 탭에서 Status: Running 인지 확인하세요";
+    }
+  }
+  function initChat() {
+    if (chat.inited) return;
+    chat.inited = true;
+    $("#lms-base").value = store.get("lms_base", "http://127.0.0.1:1234");
+    loadModels();
+    try { chat.history = JSON.parse(store.get("chat", "[]")).slice(-20); } catch (e) { chat.history = []; }
+    if (!chat.history.length) {
+      addMsg("bot", "안녕하세요, 대장님. 로또 확률 연구소 분석 상담가입니다. 당첨 번호를 예측해 드릴 수는 없지만, 실제 자료로 계산한 통계와 ‘나눠 가질 위험이 적은 조합’은 정확하게 알려 드릴 수 있습니다. 무엇이 궁금하세요?");
+    } else {
+      chat.history.forEach((m) => addMsg(m.role === "user" ? "user" : "bot", m.content));
+    }
+  }
+  $("#lms-refresh").addEventListener("click", () => { store.set("lms_base", lmsBase()); loadModels(); });
+  $("#lms-model").addEventListener("change", (e) => store.set("model", e.target.value));
+  $("#chat-clear").addEventListener("click", () => {
+    chat.history = []; store.set("chat", "[]"); $("#chat-log").innerHTML = ""; chat.inited = false; initChat();
+  });
+  $("#chips").addEventListener("click", (e) => { const c = e.target.closest(".chip"); if (c) send(c.textContent); });
+  $("#chat-text").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send($("#chat-text").value); }
+  });
+  $("#chat-text").addEventListener("input", (e) => { e.target.style.height = "auto"; e.target.style.height = Math.min(160, e.target.scrollHeight) + "px"; });
+  $("#chat-send").addEventListener("click", () => {
+    if (chat.busy && chat.ctrl) { chat.ctrl.abort(); return; }
+    send($("#chat-text").value);
+  });
+
+  function md(text) {
+    // 안전한 최소 마크다운: 이스케이프 후 굵게·목록·표·단락
+    const lines = esc(text).split("\n");
+    let out = "", list = null, table = [];
+    const flushList = () => { if (list) { out += `<${list}>` + listItems.join("") + `</${list}>`; list = null; listItems = []; } };
+    let listItems = [];
+    const flushTable = () => {
+      if (!table.length) return;
+      const rows = table
+        .map((r) => r.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim()))
+        .filter((cells) => !cells.every((c) => /^:?-+:?$/.test(c)));
+      out += "<table>" + rows.map((cells, i) => {
+        const tag = i === 0 ? "th" : "td";
+        return "<tr>" + cells.map((c) => `<${tag}>${c}</${tag}>`).join("") + "</tr>";
+      }).join("") + "</table>";
+      table = [];
+    };
+    for (const raw of lines) {
+      const line = raw.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/^#{1,4}\s*(.+)$/, "<b>$1</b>");
+      if (/^\s*\|.*\|\s*$/.test(raw)) { flushList(); table.push(line); continue; }
+      flushTable();
+      const ul = line.match(/^\s*[-*•]\s+(.*)$/), ol = line.match(/^\s*\d+[.)]\s+(.*)$/);
+      if (ul || ol) {
+        const kind = ul ? "ul" : "ol";
+        if (list !== kind) { flushList(); list = kind; }
+        listItems.push(`<li>${(ul || ol)[1]}</li>`);
+        continue;
+      }
+      flushList();
+      if (line.trim()) out += `<p>${line}</p>`;
+    }
+    flushList(); flushTable();
+    return out;
+  }
+
+  // 답변의 숫자가 코드가 준 자료(또는 질문)에 있는지 확인
+  function checkNumbers(answer, facts, question) {
+    const src = (facts + "\n" + question);
+    const pool = new Set((src.match(/\d[\d,]*(?:\.\d+)?/g) || []).map((s) => parseFloat(s.replace(/,/g, ""))));
+    const poolArr = [...pool];
+    const bad = [];
+    const re = /(\d[\d,]*(?:\.\d+)?)\s*(억|만|천)?\s*(%|원|명|회|배|게임|개)?/g;
+    let m;
+    while ((m = re.exec(answer))) {
+      const v = parseFloat(m[1].replace(/,/g, ""));
+      const unit = m[3] || "", big = m[2] || "";
+      if (!big && !unit && v <= 45 && !m[1].includes(".")) continue; // 공 번호·작은 수
+      if (!big && !unit && v < 100) continue;
+      if (big) {
+        const mult = big === "억" ? 1e8 : big === "만" ? 1e4 : 1e3;
+        const val = v * mult;
+        if (poolArr.some((x) => x > 0 && Math.abs(x - val) / x < 0.06)) continue;
+        if (pool.has(v)) continue;
+      } else if (pool.has(v)) continue;
+      if (/^(19|20)\d\d$/.test(m[1])) continue; // 연도
+      bad.push(m[0].trim());
+    }
+    return [...new Set(bad)].slice(0, 8);
+  }
+
+  function addMsg(role, content) {
+    const el = document.createElement("div");
+    el.className = "msg " + role;
+    if (role === "user") el.textContent = content;
+    else el.innerHTML = `<div class="who">분석 상담가</div><div class="body">${md(content)}</div>`;
+    $("#chat-log").appendChild(el);
+    $("#chat-log").scrollTop = 1e9;
+    return el;
+  }
+
+  async function send(text) {
+    text = (text || "").trim();
+    if (!text || chat.busy) return;
+    const model = $("#lms-model").value;
+    if (!model) { toast("LM Studio 모델을 먼저 연결하세요"); return; }
+    $("#chat-text").value = ""; $("#chat-text").style.height = "auto";
+    addMsg("user", text);
+    chat.history.push({ role: "user", content: text });
+    const el = addMsg("bot", "");
+    const body = $(".body", el);
+    body.innerHTML = `<span class="typing">자료 확인 중…</span>`;
+    chat.busy = true; chat.ctrl = new AbortController();
+    $("#chat-send").textContent = "중지";
+    let answer = "", facts = "", thinking = false;
+    try {
+      const r = await fetch("/api/chat", {
+        method: "POST", headers: { "Content-Type": "application/json" }, signal: chat.ctrl.signal,
+        body: JSON.stringify({ base: lmsBase(), model, messages: chat.history.slice(-12) }),
+      });
+      if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || `오류 ${r.status}`); }
+      const reader = r.body.getReader(), dec = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i;
+        while ((i = buf.indexOf("\n")) >= 0) {
+          const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+          if (!line.startsWith("data:")) continue;
+          const data = line.slice(5).trim();
+          if (data === "[DONE]") continue;
+          let j; try { j = JSON.parse(data); } catch (e) { continue; }
+          if (j.facts) { facts = j.facts; continue; }
+          const d = j.choices && j.choices[0] && j.choices[0].delta;
+          if (!d) continue;
+          if (d.reasoning_content || d.reasoning) { thinking = true; body.innerHTML = `<span class="typing">생각 중…</span>`; }
+          if (d.content) {
+            answer += d.content;
+            const shown = answer.replace(/<think>[\s\S]*?(<\/think>|$)/g, "").trim();
+            body.innerHTML = shown ? md(shown) : `<span class="typing">${thinking || /<think>/.test(answer) ? "생각 중…" : "작성 중…"}</span>`;
+            $("#chat-log").scrollTop = 1e9;
+          }
+        }
+      }
+    } catch (e) {
+      if (e.name !== "AbortError") answer = answer || `⚠️ ${e.message}\n\nLM Studio 가 켜져 있고(Developer → Status: Running) 모델이 선택돼 있는지 확인해 주세요.`;
+    }
+    answer = answer.replace(/<think>[\s\S]*?(<\/think>|$)/g, "").trim() || "(답변이 비어 있습니다)";
+    body.innerHTML = md(answer);
+    if (facts) {
+      const bad = checkNumbers(answer, facts, text);
+      if (bad.length) {
+        const c = document.createElement("div");
+        c.className = "check";
+        c.textContent = "🔢 계산 자료에서 그대로 확인되지 않은 숫자: " + bad.join(", ") + " — 다른 화면의 숫자로 확인하세요.";
+        el.appendChild(c);
+      }
+    }
+    chat.history.push({ role: "assistant", content: answer });
+    store.set("chat", JSON.stringify(chat.history.slice(-20)));
+    chat.busy = false; chat.ctrl = null;
+    $("#chat-send").textContent = "보내기";
+    $("#chat-log").scrollTop = 1e9;
+  }
+
+  // ---------------------------------------------------------------- 시작
+  async function load() {
+    try {
+      S = await api("/api/summary");
+    } catch (e) {
+      $("#data-status").textContent = "서버에 연결할 수 없습니다";
+      return;
+    }
+    renderHome(); renderStats(); renderBacktest(); renderPopular();
+  }
+  load().then(() => {
+    const v = store.get("view", "home");
+    if ($("#view-" + v)) showView(v);
+  });
+})();

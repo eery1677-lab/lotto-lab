@@ -1,0 +1,342 @@
+"""로또 확률 연구소 — 로컬 서버 (표준 라이브러리만, 맥·윈도우 공용).
+
+실행: python3 server.py            → http://127.0.0.1:3600 (이 컴퓨터만)
+      python3 server.py --lan      → 같은 와이파이 기기(아이패드 등)에서도 접속
+      python3 server.py --no-browser
+"""
+import json
+import os
+import re
+import sys
+import threading
+import time
+import urllib.error
+import urllib.request
+import webbrowser
+from datetime import datetime, timedelta
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+import lotto_data
+from analysis import Analyzer
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+STATIC_DIR = os.path.join(BASE_DIR, "web")
+PORT = int(os.environ.get("LOTTO_PORT", "3600"))
+STATIC_TYPES = {".html": "text/html; charset=utf-8", ".js": "application/javascript; charset=utf-8",
+                ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png",
+                ".ico": "image/x-icon", ".json": "application/json"}
+DEFAULT_LMS = "http://127.0.0.1:1234"
+
+_lock = threading.Lock()
+_state = {"analyzer": None, "updating": False, "last_try": 0.0, "last_error": ""}
+
+
+# ---------------------------------------------------------------- 데이터
+def _rebuild(draws):
+    a = Analyzer(draws)
+    with _lock:
+        _state["analyzer"] = a
+    return a
+
+
+def analyzer():
+    with _lock:
+        return _state["analyzer"]
+
+
+def _next_draw_time(last_date):
+    """마지막 추첨일 다음 토요일 21시(추첨 후 결과가 올라오는 시각을 넉넉히)."""
+    d = datetime.strptime(last_date, "%Y-%m-%d") + timedelta(days=7)
+    return d.replace(hour=21, minute=30)
+
+
+def refresh(force=False):
+    """공식 사이트에서 새 회차 받기. force 가 아니면 새 회차가 나왔을 시각 이후에만, 30분에 한 번."""
+    a = analyzer()
+    now = time.time()
+    with _lock:
+        if _state["updating"]:
+            return False
+        if not force:
+            if a and datetime.now() < _next_draw_time(a.draws[-1]["date"]):
+                return False
+            if now - _state["last_try"] < 1800:
+                return False
+        _state["updating"] = True
+        _state["last_try"] = now
+    try:
+        draws = lotto_data.fetch_all()
+        if not a or len(draws) != a.n:
+            _rebuild(draws)
+        _state["last_error"] = ""
+        return True
+    except Exception as e:  # 인터넷 끊김 등 — 저장된 자료로 계속
+        _state["last_error"] = f"{type(e).__name__}: {e}"[:200]
+        return False
+    finally:
+        with _lock:
+            _state["updating"] = False
+
+
+def refresh_async(force=False):
+    threading.Thread(target=refresh, args=(force,), daemon=True).start()
+
+
+# ---------------------------------------------------------------- LM Studio
+def _lms_base(base):
+    base = (base or DEFAULT_LMS).strip().rstrip("/")
+    if base.endswith("/v1"):
+        base = base[:-3]
+    if not re.match(r"^https?://[\w.\-:\[\]]+$", base):
+        raise ValueError("LM Studio 주소 형식이 이상합니다 (예: http://127.0.0.1:1234)")
+    return base
+
+
+def lms_models(base):
+    base = _lms_base(base)
+    try:  # LM Studio 전용 API: 로드 여부까지 나옴
+        with urllib.request.urlopen(base + "/api/v0/models", timeout=5) as r:
+            data = json.loads(r.read().decode("utf-8"))["data"]
+        return [{"id": m["id"], "loaded": m.get("state") == "loaded",
+                 "ctx": m.get("loaded_context_length") or m.get("max_context_length")}
+                for m in data if m.get("type") in ("llm", "vlm")]
+    except Exception:
+        with urllib.request.urlopen(base + "/v1/models", timeout=5) as r:
+            data = json.loads(r.read().decode("utf-8"))["data"]
+        return [{"id": m["id"], "loaded": True, "ctx": None} for m in data if "embed" not in m["id"].lower()]
+
+
+SYSTEM_PROMPT = """너는 '로또 확률 연구소'의 분석 상담가다. 수학·확률·통계 전문가처럼 정확하고 정직하게 말한다.
+사용자는 반드시 "대장님"이라고 부른다("사장님/고객님/사용자" 금지).
+
+[반드시 지킬 것]
+1. 로또 번호는 예측할 수 없다. 추첨은 매번 독립이고 모든 조합의 1등 확률은 1/8,145,060 으로 같다.
+   "이번 주 당첨 번호", "당첨 확률을 올리는 번호"를 달라고 하면 예측은 불가능하다고 짧게 말하고,
+   아래 [코드가 만든 조합]이 있으면 그것을 "당첨 확률은 같지만, 당첨되면 나눠 가질 사람이 적을 것으로 추정되는 조합"으로 소개한다.
+2. 숫자는 아래 [사실]과 [코드가 만든 조합]/[검사한 번호]에 있는 것만 쓴다. 새 숫자를 지어내거나 계산해서 만들지 않는다.
+   자료에 없으면 "자료에 없습니다"라고 말한다.
+3. 핫넘버·콜드넘버·미출현·패턴·궁합수·AI 예측이 효과 있다고 말하지 않는다. [사실]의 예측법 검증 '결론(코드 판정)'을 그대로 따른다.
+   어떤 방법의 횟수나 환급률이 조금 높게 나온 것을 "가장 많았다", "참고하면 도움이 된다"처럼 장점으로 말하지 않는다 — 운의 범위다.
+4. 미국 등 해외 사례: 매사추세츠 Cash WinFall(이월 분배 규칙의 허점, 예측 아님), 스테판 만델(모든 조합을 사들임, 지금은 규정상 불가)처럼
+   '게임 규칙/구매 방식'의 문제였지 번호 예측이 아니었다는 점을 정확히 말한다. 모르는 사례는 지어내지 않는다.
+5. 로또의 기대값은 음수(1,000원당 약 500원 환급)다. 여유 돈으로 재미로만, 예산을 정해서 하라고 권한다.
+   돈 문제·중독 고민이 보이면 한국도박문제예방치유원 국번없이 1336 을 알려 준다.
+6. 한국어로, 짧고 쉽게. 표나 목록은 필요할 때만. 생각 과정(<think>)을 쓰지 말고 답만 쓴다.
+
+[사실 — 동행복권 공식 자료를 코드가 계산]
+{facts}
+"""
+
+NUM_REQUEST = re.compile(r"(번호|조합).{0,8}(추천|뽑|생성|만들|골라|줘|알려)|(추천|뽑아|골라).{0,6}(번호|조합)|이번\s*주|다음\s*주|당첨\s*번호\s*(예측|알려)")
+
+
+def _extract_six(text):
+    nums = [int(x) for x in re.findall(r"(?<!\d)([1-9]|[1-3]\d|4[0-5])(?!\d)", text)]
+    uniq = []
+    for n in nums:
+        if n not in uniq:
+            uniq.append(n)
+    return sorted(uniq) if len(uniq) == 6 else None
+
+
+def build_context(a, question):
+    """질문에 맞춰 코드가 계산한 추가 자료를 붙인다."""
+    extra = []
+    six = _extract_six(question)
+    if six:
+        ev = a.evaluate(six)
+        hc = a.history_check(six)
+        extra.append(
+            f"[검사한 번호 {', '.join(map(str, six))}]\n"
+            f"- 1등 확률 1/8,145,060 (다른 조합과 동일)\n"
+            f"- 인기도 {ev['popularity']}배(1.0=평균 조합), 무작위 조합 중 하위 {ev['percentile']}% 위치(낮을수록 덜 인기)\n"
+            f"- 1등이면 함께 당첨될 사람 평균 {ev['co_winners']}명 추정, 1등 기대 수령액(세전) 약 {ev['expected_rank1']:,}원 "
+            f"(평균 조합 {ev['expected_rank1_avg']:,}원)\n"
+            f"- 1회부터 매주 이 번호를 샀다면: 1~5등 {hc['prizes'][0]}/{hc['prizes'][1]}/{hc['prizes'][2]}/{hc['prizes'][3]}/{hc['prizes'][4]}회, "
+            f"쓴 돈 {hc['spent']:,}원, 받은 돈 {hc['won']:,}원, 최고 {hc['best']['match']}개 일치"
+            + (f"({hc['best']['no']}회)" if hc["best"]["no"] else "")
+            + (f"\n- 이 조합은 과거 {', '.join(map(str, hc['exact']))}회 1등 번호와 같다" if hc["exact"] else ""))
+    elif NUM_REQUEST.search(question):
+        combos = a.generate(5, "unpopular", strength=10)
+        lines = [f"- {', '.join(map(str, c['nums']))} : 인기도 {c['popularity']}배, 1등 동반 당첨자 약 {c['co_winners']}명, "
+                 f"1등 기대 수령액 약 {c['expected_rank1']:,}원" for c in combos]
+        extra.append("[코드가 만든 조합 — 운영체제 난수로 무작위 생성 후 비인기 하위 10%만 남김. 당첨 확률은 다른 조합과 같음]\n"
+                     + "\n".join(lines) + f"\n(평균 조합의 1등 기대 수령액 약 {combos[0]['expected_rank1_avg']:,}원)")
+    return a.facts_text() + ("\n\n" + "\n\n".join(extra) if extra else "")
+
+
+def _lms_post(base, body, stream):
+    def send(b):
+        req = urllib.request.Request(base + "/v1/chat/completions", data=json.dumps(b).encode("utf-8"),
+                                     headers={"Content-Type": "application/json"})
+        return urllib.request.urlopen(req, timeout=600)
+    b = dict(body, stream=stream, reasoning_effort="none")
+    try:
+        return send(b)
+    except urllib.error.HTTPError as e:
+        if e.code in (400, 422):  # 생각 끄기 옵션을 모르는 모델 → 빼고 재시도
+            b.pop("reasoning_effort", None)
+            return send(b)
+        raise
+
+
+# ---------------------------------------------------------------- HTTP
+class Handler(BaseHTTPRequestHandler):
+    server_version = "LottoLab/1.0"
+
+    def log_message(self, fmt, *args):
+        pass
+
+    def _json(self, obj, code=200):
+        data = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _body(self):
+        n = int(self.headers.get("Content-Length") or 0)
+        if n > 2_000_000:
+            raise ValueError("요청이 너무 큽니다")
+        return json.loads(self.rfile.read(n).decode("utf-8") or "{}") if n else {}
+
+    def do_GET(self):
+        path = self.path.split("?", 1)[0]
+        if path == "/api/summary":
+            refresh_async()
+            a = analyzer()
+            s = a.summary()
+            s["status"] = {"updated": lotto_data.updated_at(), "updating": _state["updating"],
+                           "error": _state["last_error"],
+                           "next_draw": _next_draw_time(a.draws[-1]["date"]).strftime("%Y-%m-%d")}
+            return self._json(s)
+        if path == "/api/draws":
+            return self._json(analyzer().draws)
+        if path == "/api/lms/models":
+            from urllib.parse import parse_qs, urlparse
+            q = parse_qs(urlparse(self.path).query)
+            try:
+                return self._json({"models": lms_models(q.get("base", [""])[0])})
+            except Exception as e:
+                return self._json({"error": f"LM Studio 에 연결할 수 없습니다 ({type(e).__name__})"}, 502)
+        return self._static(path)
+
+    def _static(self, path):
+        if path == "/":
+            path = "/index.html"
+        rel = path.lstrip("/")
+        ext = os.path.splitext(rel)[1].lower()
+        if ".." in rel or rel.startswith(".") or "\\" in rel or ext not in STATIC_TYPES:
+            return self._json({"error": "없음"}, 404)
+        full = os.path.normpath(os.path.join(STATIC_DIR, rel))
+        if not full.startswith(STATIC_DIR) or not os.path.isfile(full):
+            return self._json({"error": "없음"}, 404)
+        with open(full, "rb") as f:
+            data = f.read()
+        self.send_response(200)
+        self.send_header("Content-Type", STATIC_TYPES[ext])
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_POST(self):
+        path = self.path.split("?", 1)[0]
+        try:
+            body = self._body()
+        except Exception as e:
+            return self._json({"error": str(e)}, 400)
+        a = analyzer()
+        if path == "/api/update":
+            ok = refresh(force=True)
+            a = analyzer()
+            return self._json({"ok": ok, "draws": a.n, "latest": a.draws[-1]["no"], "error": _state["last_error"]})
+        if path == "/api/generate":
+            count = max(1, min(10, int(body.get("count", 5))))
+            mode = "random" if body.get("mode") == "random" else "unpopular"
+            strength = int(body.get("strength", 10))
+            strength = strength if strength in (5, 10, 20, 50) else 10
+            return self._json({"combos": a.generate(count, mode, strength=strength)})
+        if path == "/api/check":
+            nums = body.get("nums") or []
+            try:
+                nums = sorted(int(x) for x in nums)
+            except (TypeError, ValueError):
+                nums = []
+            if len(nums) != 6 or len(set(nums)) != 6 or not all(1 <= x <= 45 for x in nums):
+                return self._json({"error": "1~45 사이 서로 다른 숫자 6개를 넣어 주세요"}, 400)
+            return self._json({"eval": a.evaluate(nums), "history": a.history_check(nums)})
+        if path == "/api/chat":
+            return self._chat(a, body)
+        return self._json({"error": "없음"}, 404)
+
+    def _chat(self, a, body):
+        try:
+            base = _lms_base(body.get("base"))
+        except ValueError as e:
+            return self._json({"error": str(e)}, 400)
+        msgs = [m for m in (body.get("messages") or []) if m.get("role") in ("user", "assistant")][-12:]
+        if not msgs or msgs[-1]["role"] != "user":
+            return self._json({"error": "질문이 없습니다"}, 400)
+        facts = build_context(a, str(msgs[-1]["content"]))
+        payload = {
+            "model": body.get("model") or "",
+            "messages": [{"role": "system", "content": SYSTEM_PROMPT.format(facts=facts)}]
+                        + [{"role": m["role"], "content": str(m["content"])[:4000]} for m in msgs],
+            "temperature": 0.3,
+            "max_tokens": 1500,
+        }
+        try:
+            upstream = _lms_post(base, payload, stream=True)
+        except Exception as e:
+            return self._json({"error": f"LM Studio 호출 실패: {type(e).__name__} {str(e)[:120]}"}, 502)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        try:
+            self.wfile.write(("data: " + json.dumps({"facts": facts}, ensure_ascii=False) + "\n\n").encode("utf-8"))
+            self.wfile.flush()
+            for line in upstream:
+                if line.strip():
+                    self.wfile.write(line if line.endswith(b"\n") else line + b"\n")
+                    if line.startswith(b"data:"):
+                        self.wfile.write(b"\n")
+                    self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass  # 사용자가 '중지'를 누름
+        finally:
+            upstream.close()
+
+
+def main():
+    lan = "--lan" in sys.argv
+    host = "0.0.0.0" if lan else "127.0.0.1"
+    draws = lotto_data.load()
+    if not draws:
+        print("저장된 자료가 없어 동행복권에서 받는 중…")
+        draws = lotto_data.fetch_all()
+    _rebuild(draws)
+    refresh_async()
+    url = f"http://127.0.0.1:{PORT}"
+    try:
+        httpd = ThreadingHTTPServer((host, PORT), Handler)
+    except OSError:
+        print(f"{PORT} 포트가 이미 사용 중 — 이미 켜져 있으면 브라우저만 엽니다: {url}")
+        if "--no-browser" not in sys.argv:
+            webbrowser.open(url)
+        return
+    httpd.daemon_threads = True
+    print(f"로또 확률 연구소: {url}" + ("  (같은 와이파이 기기에서도 접속 가능)" if lan else ""))
+    if "--no-browser" not in sys.argv:
+        threading.Timer(0.8, lambda: webbrowser.open(url)).start()
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        pass
+
+
+if __name__ == "__main__":
+    main()
