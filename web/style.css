@@ -348,7 +348,7 @@ code { font-size: 13px; background: var(--panel-2); border: 1px solid var(--line
 /* ---------- 캐릭터 '로또' (로또 공 박사) */
 .av { position: relative; display: inline-block; width: 38px; height: 38px; border-radius: 50%; overflow: hidden; flex: none; vertical-align: middle;
   background: radial-gradient(circle at 35% 30%, #fff7d6, #ffe38a 60%, #ffc933); box-shadow: 0 0 0 2px #fff, 0 2px 8px rgba(0,0,0,.2); font-size: 22px; line-height: 38px; text-align: center; }
-.av img { position: absolute; width: 210%; left: -55%; top: -40%; max-width: none; }
+.av img { position: absolute; inset: 0; width: 100%; height: 100%; max-width: none; object-fit: cover; }
 .msg.bot .who { display: flex; align-items: center; gap: 8px; }
 .msg.bot .who i { font-style: normal; color: var(--muted); font-size: 12px; margin-left: 6px; }
 .brand-lotto { display: inline-block; vertical-align: middle; margin-right: 8px; }

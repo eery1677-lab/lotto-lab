@@ -831,7 +831,7 @@
     if (Pet.tried || !window.Lotto3D) return;
     Pet.tried = true;
     if (!window.Lotto3D.ok) return;            // 3D 를 못 쓰는 기기: 이모지 아바타로 대체
-    try { Pet.snaps = window.Lotto3D.snapshots(160); } catch (e) { Pet.snaps = null; }
+    try { Pet.snaps = window.Lotto3D.snapshots(180, 0.22, null, "bust"); } catch (e) { Pet.snaps = null; }
     paintAvatars();
     try {
       Pet.machine = window.Lotto3D.mount($("#lotto-pet"), { onTap: () => Pet.machine && Pet.machine.hop() });

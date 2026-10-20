@@ -296,13 +296,15 @@ const Lotto3D = {
     };
   },
   /** 표정별 그림(dataURL)을 미리 찍어 둔다 — 채팅 아바타 등 작은 곳에 쓴다. */
-  snapshots(size, yaw, moods) {
+  snapshots(size, yaw, moods, view) {
     size = size || 160;
     const renderer = makeRenderer({ preserveDrawingBuffer: true, antialias: true }); if (!renderer) return null;
     renderer.setPixelRatio(1); renderer.setSize(size, size, false);
     const scene = new THREE.Scene(); addLights(scene);
     const ch = new Lotto(); ch.userYaw = yaw == null ? 0.3 : yaw; scene.add(ch.group);
-    const cam = new THREE.PerspectiveCamera(26, 1, 0.1, 50); cam.position.set(0, 1.75, 7.0); cam.lookAt(0, 1.4, 0);
+    const cam = new THREE.PerspectiveCamera(26, 1, 0.1, 50);
+    if (view === "bust") { cam.position.set(0, 1.62, 5.0); cam.lookAt(0, 1.56, 0); }   // 아바타용: 모자·얼굴이 동그라미에 꽉 차게
+    else { cam.position.set(0, 1.75, 7.0); cam.lookAt(0, 1.4, 0); }
     const out = {};
     for (const m of moods || MOODS) { ch.setMood(m); ch.blink = false; ch.t = 0.6; ch.moodT = 0.45; ch.update(0); ch.redraw(); renderer.render(scene, cam); out[m] = renderer.domElement.toDataURL("image/png"); }
     renderer.dispose(); if (renderer.forceContextLoss) renderer.forceContextLoss();
