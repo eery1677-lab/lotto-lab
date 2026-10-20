@@ -264,3 +264,9 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
 .budget-bar i { display: block; height: 100%; background: var(--accent); }
 .budget-bar i.over { background: var(--warn); }
 code { font-size: 13px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 0 5px; }
+
+/* ---------- AI 도구 사용 표시 */
+.msg .tools { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.tool-chip { font-size: 12.5px; background: var(--ai-soft); color: var(--ai); border-radius: 99px; padding: 2px 10px; }
+.tool-chip.err { background: var(--warn-soft); color: var(--warn); }
+.msg .revised { margin-top: 10px; font-size: 12.5px; background: var(--ai-soft); color: var(--ai); border-radius: 8px; padding: 6px 10px; }

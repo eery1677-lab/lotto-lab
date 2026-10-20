@@ -197,6 +197,7 @@
         <span style="color:${gain >= 0 ? "var(--good)" : "var(--warn)"}">(평균 조합 대비 ${gain >= 0 ? "+" : ""}${(gain * 100).toFixed(1)}%)</span>
         <div>1,000원당 기대 환급 <b>${c.ev[0]}원</b>(세후 ${c.ev[1]}원) · 평균 조합 ${c.ev_avg[0]}원 · 이론 최대 ${c.ev_floor[0]}원</div>
         <div>합계 ${c.sum} · 홀수 ${c.odd}개${c.past4 ? ` · <span style="color:var(--warn)">과거 1등과 4개 이상 같음</span>` : ""}</div>
+        ${c.known_patterns && c.known_patterns.length ? `<div style="color:var(--warn)">⚠️ 알려진 인기 모양(${c.known_patterns.map(esc).join(", ")}) — 당첨번호로 거의 안 나와 위 계산에 반영되지 못합니다. 해외 연구상 이런 모양은 수천 명이 같이 사므로 실제로는 훨씬 많은 사람과 나눌 수 있습니다.</div>` : ""}
       </div>
       ${i != null ? `<button class="btn sm" data-copy="${c.nums.join(" ")}">복사</button>` : ""}
     </div>`;
@@ -605,7 +606,7 @@
     body.innerHTML = `<span class="typing">자료 확인 중…</span>`;
     chat.busy = true; chat.ctrl = new AbortController();
     $("#chat-send").textContent = "중지";
-    let answer = "", facts = "", thinking = false;
+    let answer = "", facts = "", thinking = false, revised = null, serverCheck = null;
     try {
       const r = await fetch("/api/chat", {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: chat.ctrl.signal,
@@ -626,6 +627,25 @@
           if (data === "[DONE]") continue;
           let j; try { j = JSON.parse(data); } catch (e) { continue; }
           if (j.facts) { facts = j.facts; continue; }
+          if (j.tool) {
+            facts += "\n" + (j.facts_add || "");
+            let tl = $(".tools", el);
+            if (!tl) { tl = document.createElement("div"); tl.className = "tools"; el.insertBefore(tl, body); }
+            const chip = document.createElement("span");
+            chip.className = "tool-chip" + (j.tool.error ? " err" : "");
+            chip.textContent = "🔧 " + j.tool.label + (j.tool.error ? " — " + j.tool.error : "");
+            tl.appendChild(chip);
+            if (!answer) body.innerHTML = `<span class="typing">자료 확인 후 답변 작성 중…</span>`;
+            continue;
+          }
+          if (j.error) { answer += `\n\n⚠️ ${j.error}`; continue; }
+          if (j.revise) {
+            revised = j.revise;
+            body.innerHTML = `<span class="typing">검토 중 고칠 곳을 찾아 다시 쓰는 중…</span>`;
+            continue;
+          }
+          if (j.replace) { answer = ""; continue; }
+          if (j.check) { serverCheck = j.check; continue; }
           const d = j.choices && j.choices[0] && j.choices[0].delta;
           if (!d) continue;
           if (d.reasoning_content || d.reasoning) { thinking = true; body.innerHTML = `<span class="typing">생각 중…</span>`; }
@@ -642,12 +662,22 @@
     }
     answer = answer.replace(/<think>[\s\S]*?(<\/think>|$)/g, "").trim() || "(답변이 비어 있습니다)";
     body.innerHTML = md(answer);
+    if (revised) {
+      const r = document.createElement("div");
+      r.className = "revised";
+      const why = [].concat(revised.numbers.length ? ["자료에 없는 숫자 " + revised.numbers.join(", ")] : [],
+        revised.phrases.length ? ["쓰면 안 되는 표현"] : []).join(" · ");
+      r.textContent = "🔁 검토 후 고친 답 (처음 답의 문제: " + why + ")";
+      el.appendChild(r);
+    }
     if (facts) {
-      const bad = checkNumbers(answer, facts, text);
-      if (bad.length) {
+      const bad = serverCheck ? serverCheck.numbers : checkNumbers(answer, facts, text);
+      const phrases = serverCheck ? serverCheck.phrases : [];
+      if (bad.length || phrases.length) {
         const c = document.createElement("div");
         c.className = "check";
-        c.textContent = "🔢 계산 자료에서 그대로 확인되지 않은 숫자: " + bad.join(", ") + " — 다른 화면의 숫자로 확인하세요.";
+        c.textContent = (bad.length ? "🔢 계산 자료에서 그대로 확인되지 않은 숫자: " + bad.join(", ") + ". " : "")
+          + (phrases.length ? "⚠️ 주의할 표현: " + phrases.join(" / ") + ". " : "") + "다른 화면의 숫자로 확인하세요.";
         el.appendChild(c);
       }
     }

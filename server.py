@@ -17,6 +17,8 @@ from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import lotto_data
+import answer_check
+import chat_tools
 import tickets
 from analysis import Analyzer
 
@@ -128,6 +130,28 @@ SYSTEM_PROMPT = """너는 '로또 확률 연구소'의 분석 상담가다. 수�
 {facts}
 """
 
+TOOL_RULES = """
+[도구 사용 — 이 규칙이 위 규칙보다 우선]
+- 특정 회차·날짜의 당첨번호, 번호 하나의 출현 통계, 많이/적게 나온 번호 순위, 번호들이 함께 나온 회차,
+  번호 추천, 번호 6개 검사, 대장님 구매 기록 질문은 **반드시 먼저 해당 도구를 불러서** 그 결과로만 답한다.
+- 번호 추천은 generate_numbers 결과를 그대로 보여 주고, "당첨 확률은 같지만 당첨되면 나눠 가질 사람이 적을 것으로 추정되는 조합"이라고 소개한다.
+- 도구 결과에 있는 숫자만 옮겨 쓴다. 도구 결과끼리 더하거나 나눠서 새 숫자를 만들지 않는다.
+- 도구가 '오류'를 돌려주면 그 내용을 그대로 알린다. 도구로 알 수 없는 것은 "자료에 없습니다"라고 말한다.
+- 도구 결과의 '주의' 문장은 답에 반영한다(과거 횟수는 앞으로의 확률과 무관).
+"""
+
+RECOMMEND = re.compile(r"(번호|조합|게임).{0,10}(추천|뽑|골라|만들|생성)|(추천|뽑아|골라|만들어).{0,8}(번호|조합|게임)")
+
+
+def forced_tool(question):
+    """작은 모델이 도구를 빠뜨리기 쉬운 질문은 첫 차례에 그 도구만 주고 반드시 부르게 한다."""
+    if _extract_six(question):
+        return "check_numbers"
+    if RECOMMEND.search(question):
+        return "generate_numbers"
+    return None
+
+
 NUM_REQUEST = re.compile(r"(번호|조합).{0,8}(추천|뽑|생성|만들|골라|줘|알려)|(추천|뽑아|골라).{0,6}(번호|조합)|이번\s*주|다음\s*주|당첨\s*번호\s*(예측|알려)")
 
 
@@ -171,18 +195,25 @@ def build_context(a, question):
 
 
 def _lms_post(base, body, stream):
+    """LM Studio 호출. 거절(400/422)되면 생각 끄기 옵션 → 도구 순서로 빼고 다시 보낸다.
+    돌려주는 값: (응답, 도구를 실제로 보냈는지)."""
     def send(b):
         req = urllib.request.Request(base + "/v1/chat/completions", data=json.dumps(b).encode("utf-8"),
                                      headers={"Content-Type": "application/json"})
         return urllib.request.urlopen(req, timeout=600)
     b = dict(body, stream=stream, reasoning_effort="none")
-    try:
-        return send(b)
-    except urllib.error.HTTPError as e:
-        if e.code in (400, 422):  # 생각 끄기 옵션을 모르는 모델 → 빼고 재시도
-            b.pop("reasoning_effort", None)
-            return send(b)
-        raise
+    attempts = [lambda x: x, lambda x: x.pop("reasoning_effort", None),
+                lambda x: (x.pop("tools", None), x.pop("tool_choice", None))]
+    last = None
+    for step in attempts:
+        step(b)
+        try:
+            return send(b), "tools" in b
+        except urllib.error.HTTPError as e:
+            if e.code not in (400, 422):
+                raise
+            last = e
+    raise last
 
 
 # ---------------------------------------------------------------- HTTP
@@ -294,6 +325,39 @@ class Handler(BaseHTTPRequestHandler):
             return self._chat(a, body)
         return self._json({"error": "없음"}, 404)
 
+    def _sse(self, obj):
+        self.wfile.write(("data: " + json.dumps(obj, ensure_ascii=False) + "\n\n").encode("utf-8"))
+        self.wfile.flush()
+
+    def _relay(self, upstream):
+        """LM Studio 스트림을 화면으로 넘기고, 도구 호출 조각은 모아서 돌려준다."""
+        content = ""
+        calls = {}
+        for line in upstream:
+            line = line.strip()
+            if not line.startswith(b"data:"):
+                continue
+            data = line[5:].strip()
+            if data == b"[DONE]":
+                continue
+            try:
+                j = json.loads(data.decode("utf-8"))
+            except ValueError:
+                continue
+            ch = (j.get("choices") or [{}])[0]
+            delta = ch.get("delta") or ch.get("message") or {}
+            for tc in delta.get("tool_calls") or []:
+                slot = calls.setdefault(tc.get("index", len(calls)), {"id": "", "name": "", "args": ""})
+                slot["id"] = tc.get("id") or slot["id"]
+                fn = tc.get("function") or {}
+                slot["name"] += fn.get("name") or ""
+                args = fn.get("arguments")
+                slot["args"] += args if isinstance(args, str) else (json.dumps(args) if args else "")
+            if delta.get("content") or delta.get("reasoning_content") or delta.get("reasoning"):
+                content += delta.get("content") or ""
+                self._sse({"choices": [{"delta": {k: v for k, v in delta.items() if k != "tool_calls"}}]})
+        return content, [calls[k] for k in sorted(calls)]
+
     def _chat(self, a, body):
         try:
             base = _lms_base(body.get("base"))
@@ -302,35 +366,82 @@ class Handler(BaseHTTPRequestHandler):
         msgs = [m for m in (body.get("messages") or []) if m.get("role") in ("user", "assistant")][-12:]
         if not msgs or msgs[-1]["role"] != "user":
             return self._json({"error": "질문이 없습니다"}, 400)
-        facts = build_context(a, str(msgs[-1]["content"]))
-        payload = {
-            "model": body.get("model") or "",
-            "messages": [{"role": "system", "content": SYSTEM_PROMPT.format(facts=facts)}]
-                        + [{"role": m["role"], "content": str(m["content"])[:4000]} for m in msgs],
-            "temperature": 0.3,
-            "max_tokens": 1500,
-        }
+        question = str(msgs[-1]["content"])
+        want_tools = body.get("tools") is not False
+
+        def system(tools_on):
+            facts = a.facts_text() if tools_on else build_context(a, question)
+            return facts, SYSTEM_PROMPT.format(facts=facts) + (TOOL_RULES if tools_on else "")
+
+        facts, sys_text = system(want_tools)
+        convo = [{"role": "system", "content": sys_text}] + [{"role": m["role"], "content": str(m["content"])[:4000]} for m in msgs]
+        payload = {"model": body.get("model") or "", "temperature": 0.3, "max_tokens": 1500}
+        first = {}
+        if want_tools:
+            force = forced_tool(question)
+            first = ({"tools": [t for t in chat_tools.TOOLS if t["function"]["name"] == force], "tool_choice": "required"}
+                     if force else {"tools": chat_tools.TOOLS})
         try:
-            upstream = _lms_post(base, payload, stream=True)
+            upstream, sent_tools = _lms_post(base, dict(payload, messages=convo, **first), stream=True)
         except Exception as e:
             return self._json({"error": f"LM Studio 호출 실패: {type(e).__name__} {str(e)[:120]}"}, 502)
+        if want_tools and not sent_tools:  # 이 모델은 도구를 모름 → 예전 방식(질문에 맞춘 자료)으로
+            upstream.close()
+            facts, sys_text = system(False)
+            convo[0]["content"] = sys_text
+            upstream, sent_tools = _lms_post(base, dict(payload, messages=convo), stream=True)
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         try:
-            self.wfile.write(("data: " + json.dumps({"facts": facts}, ensure_ascii=False) + "\n\n").encode("utf-8"))
-            self.wfile.flush()
-            for line in upstream:
-                if line.strip():
-                    self.wfile.write(line if line.endswith(b"\n") else line + b"\n")
-                    if line.startswith(b"data:"):
-                        self.wfile.write(b"\n")
-                    self.wfile.flush()
+            self._sse({"facts": facts, "mode": "tools" if sent_tools else "context"})
+            sources = facts + "\n" + question
+            content = ""
+            for rnd in range(5):
+                try:
+                    content, calls = self._relay(upstream)
+                finally:
+                    upstream.close()
+                if not calls:
+                    break
+                convo.append({"role": "assistant", "content": content or "",
+                              "tool_calls": [{"id": c["id"] or f"call_{rnd}_{i}", "type": "function",
+                                              "function": {"name": c["name"], "arguments": c["args"] or "{}"}}
+                                             for i, c in enumerate(calls)]})
+                for i, c in enumerate(calls):
+                    args = chat_tools.parse_args(c["args"])
+                    result = chat_tools.run(a, c["name"], args)
+                    text = json.dumps(result, ensure_ascii=False)
+                    self._sse({"tool": {"name": c["name"], "label": chat_tools.label(c["name"], args),
+                                        "error": result.get("오류")}, "facts_add": text})
+                    convo.append({"role": "tool", "tool_call_id": c["id"] or f"call_{rnd}_{i}", "content": text})
+                    sources += "\n" + text
+                last = rnd == 3  # 마지막 차례에는 도구 없이 답만 하게
+                upstream, _ = _lms_post(base, dict(payload, messages=convo,
+                                                   **({} if last else {"tools": chat_tools.TOOLS})), stream=True)
+            # 답변 검사: 자료에 없는 숫자·금지 표현이 있으면 한 번 고쳐 쓰게 한다
+            answer = re.sub(r"<think>[\s\S]*?(</think>|$)", "", content).strip()
+            result = answer_check.check(answer, sources)
+            if answer and (result["numbers"] or result["phrases"]):
+                self._sse({"revise": result})
+                fix = convo + [{"role": "assistant", "content": answer},
+                               {"role": "user", "content": answer_check.revise_prompt(result)}]
+                upstream, _ = _lms_post(base, dict(payload, messages=fix), stream=True)
+                self._sse({"replace": True})
+                try:
+                    content, _ = self._relay(upstream)
+                finally:
+                    upstream.close()
+                answer = re.sub(r"<think>[\s\S]*?(</think>|$)", "", content).strip()
+                self._sse({"check": answer_check.check(answer, sources)})
         except (BrokenPipeError, ConnectionResetError):
             pass  # 사용자가 '중지'를 누름
-        finally:
-            upstream.close()
+        except Exception as e:  # 도구 실행 뒤 LM Studio 오류 등
+            try:
+                self._sse({"error": f"{type(e).__name__}: {str(e)[:150]}"})
+            except OSError:
+                pass
 
 
 def main():

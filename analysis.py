@@ -256,6 +256,44 @@ def _corr(a, b):
     return sum((x - ma) * (y - mb) for x, y in zip(a, b)) / (sa * sb) if sa and sb else 0.0
 
 
+def known_patterns(nums):
+    """데이터로는 측정할 수 없지만(당첨번호로 거의 안 나와서) 문헌상 수천 명이 사는 모양.
+    근거: Haigh 1997(영국 1~6 약 1만 명, 7의 배수 최다), Henze 1997(용지 모양), 복권위 1057회(가로·세로·대각선)."""
+    s = sorted(nums)
+    out = []
+    run = best_run = 1
+    for a, b in zip(s, s[1:]):
+        run = run + 1 if b == a + 1 else 1
+        best_run = max(best_run, run)
+    if best_run >= 4:
+        out.append(f"연속 번호 {best_run}개")
+    ap = 2
+    for i in range(6):
+        for j in range(i + 1, 6):
+            st, ln, c = s[j] - s[i], 2, s[j]
+            while c + st in s:
+                c += st
+                ln += 1
+            ap = max(ap, ln)
+    if ap >= 5:
+        out.append(f"같은 간격 번호 {ap}개(등차수열)")
+    pts = [((n - 1) % 7, (n - 1) // 7) for n in s]
+    lines = {
+        "가로줄": max(sum(1 for _, y in pts if y == r) for r in range(7)),
+        "세로줄": max(sum(1 for x, _ in pts if x == c) for c in range(7)),
+        "대각선": max(max(sum(1 for x, y in pts if x - y == k) for k in range(-6, 7)),
+                     max(sum(1 for x, y in pts if x + y == k) for k in range(13))),
+    }
+    for name, cnt in lines.items():
+        if cnt >= 5:
+            out.append(f"용지 {name} {cnt}개")
+    for k in (3, 4, 5, 6, 7, 8, 9):
+        if all(n % k == 0 for n in s):
+            out.append(f"{k}의 배수만")
+            break
+    return out
+
+
 def features(nums, prev=None):
     s = sorted(nums)
     cols = [0] * 7
@@ -634,6 +672,11 @@ class Analyzer:
             "buy_all_cost": TOTAL * 1000,
         }
 
+    def _avg_rank1(self):
+        lam = self.money["tickets_per_draw"] / TOTAL
+        pool = self.money["rank1_pool"]
+        return round(pool * (1 - math.exp(-lam)) / lam), round(expected_net_share(pool, lam))
+
     def _ev(self, m):
         """1,000원 1게임의 기대 환급(세전, 세후). m = 조합 인기도(평균 조합 1.0).
         4·5등은 고정 금액, 1~3등은 같은 등수 당첨자끼리 나눔(동반 당첨자 ~ 포아송)."""
@@ -697,6 +740,7 @@ class Analyzer:
             "ev": [round(ev_pre), round(ev_net)],
             "ev_avg": self.money["ev_avg"], "ev_floor": self.money["ev_floor"],
             "past4": self._has_past4(nums),
+            "known_patterns": known_patterns(nums),
             "features": {k: v for (k, _, _), v in zip(FEATURES + PATTERNS, feats)},
             "sum": sum(nums), "odd": sum(1 for x in nums if x % 2),
         }
@@ -713,7 +757,7 @@ class Analyzer:
         while len(out) < count and tries < 200000:
             tries += 1
             c = tuple(sorted(sysrand.sample(range(1, 46), 6)))
-            if c in seen or (exclude_past and self._has_past4(c)):
+            if c in seen or (exclude_past and self._has_past4(c)) or known_patterns(c):
                 continue
             if mode == "unpopular" and self._log_rel(list(c), prev) > cut:
                 continue
@@ -763,7 +807,7 @@ class Analyzer:
         lines = [
             f"- 데이터: 1회(2002-12-07)~{last['no']}회({last['date']}) 총 {self.n}회, 동행복권 공식 자료.",
             f"- 최신 {last['no']}회 당첨번호: {', '.join(map(str, last['nums']))} + 보너스 {last['bonus']}, "
-            f"1등 {last['winners'][0]}명(1인당 {last['amounts'][0]:,}원).",
+            f"1등 {last['winners'][0]}명(1인당 당첨금 세전 {last['amounts'][0]:,}원).",
             f"- 1등 확률: 1/{TOTAL:,} (어떤 조합이든 동일). 2등 {m['prob']['rank'][1]}, 3등 {m['prob']['rank'][2]}, "
             f"4등 {m['prob']['rank'][3]}, 5등 {m['prob']['rank'][4]}.",
             f"- 번호별 출현 횟수 카이제곱 검정: p={r['freq_test']['p']} (0.05보다 크면 '무작위와 구별 안 됨'). "
@@ -802,11 +846,13 @@ class Analyzer:
             f"  · 1,000원 1게임의 기대 환급: 평균 조합 세전 약 {m['ev_avg'][0]}원(세후 {m['ev_avg'][1]}원), 이론상 가장 덜 인기인 조합도 세전 약 {m['ev_floor'][0]}원(세후 {m['ev_floor'][1]}원). "
             "즉 어떤 번호를 골라도 기대값은 1,000원보다 작다(손해). 비인기 조합은 '덜 잃는 방법'일 뿐이다.",
             "  · 이 모델은 당첨 확률이 아니라 '당첨됐을 때 나눠 가질 사람 수'만 예측한다.",
-            f"- 최근 52회 평균: 회당 {m['tickets_per_draw']:,}게임 판매, 1등 총상금 평균 {m['rank1_pool']:,}원, "
+            f"- 평균 조합으로 1등이 되면 기대 수령액: 세전 약 {self._avg_rank1()[0]:,}원 / 세후 약 {self._avg_rank1()[1]:,}원 "
+            f"(동반 당첨자 평균 {m['lambda_avg']}명과 나눈 값, 최근 52회 기준).",
+            f"- 최근 52회 평균: 회당 {m['tickets_per_draw']:,}게임 판매, 1등 총상금(당첨자 전체 합계, 세전) 평균 {m['rank1_pool']:,}원, "
             f"평균 조합의 1등 동반 당첨자 {m['lambda_avg']}명.",
             f"- 환급률(당첨금 총액/판매액): 전체 {m['payout_pct_all']}%, 최근 52회 {m['payout_pct_recent']}%. 즉 1,000원당 평균 약 {round(m['payout_pct_recent'] * 10)}원이 돌아옴.",
             f"- 1등 최다 당첨: {m['most_rank1']['no']}회({m['most_rank1']['date']}) {m['most_rank1']['winners']}명, "
-            f"1인당 {m['most_rank1']['amount']:,}원, 번호 {', '.join(map(str, m['most_rank1']['nums']))}"
+            f"1인당 당첨금(세전) {m['most_rank1']['amount']:,}원, 번호 {', '.join(map(str, m['most_rank1']['nums']))}"
             + (f" — 자동 {m['most_rank1']['by_type']['auto']}명·수동 {m['most_rank1']['by_type']['manual']}명(수동 구매자 사이에서 유행한 조합)." if m['most_rank1'].get('by_type') else "."),
             f"- 모든 조합을 사는 비용: {m['buy_all_cost']:,}원 (1인 1회 구매 한도 10만원이라 불가능).",
         ]
