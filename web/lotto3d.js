@@ -10,11 +10,13 @@ const FACE = { phi0: Math.PI / 2 - 0.95, phiLen: 1.9, th0: 0.95, thLen: 0.95 };
 const INK = "#1b2433";
 
 // ---------------------------------------------------------------- 얼굴 그리기(2D → 텍스처)
-function drawFace(g, mood, blink) {
+function drawFace(g, mood, blink, look, mouthOpen) {
   g.clearRect(0, 0, FW, FH);
   g.lineCap = "round"; g.lineJoin = "round";
   const EL = [193, 135], ER = [447, 135];
-  const dot = (x, y, r) => {
+  const lx = look ? Math.max(-1, Math.min(1, look.x)) * 13 : 0, ly = look ? Math.max(-1, Math.min(1, look.y)) * 9 : 0;
+  const dot = (x, y, r, k) => {                     // k: 눈동자가 마우스를 따라가는 정도
+    const kk = k == null ? 1 : k; x += lx * kk; y += ly * kk;
     g.fillStyle = INK; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
     g.fillStyle = "#fff"; g.beginPath(); g.arc(x + r * 0.34, y - r * 0.36, r * 0.36, 0, 7); g.fill();
   };
@@ -35,23 +37,30 @@ function drawFace(g, mood, blink) {
   else if (mood === "surprise") { brow(EL[0], by - 12, -0.05, 42); brow(ER[0], by - 12, 0.05, 42); }
   else if (mood === "think") { brow(EL[0], by + 2, -0.06, 42); brow(ER[0], by - 14, 0.3, 42); }
   else if (mood === "happy") { brow(EL[0], by - 6, -0.14, 42); brow(ER[0], by - 6, 0.14, 42); }
+  else if (mood === "sleep") { brow(EL[0], by + 10, -0.22, 40); brow(ER[0], by + 10, 0.22, 40); }
   else { brow(EL[0], by, -0.08, 42); brow(ER[0], by, 0.08, 42); }
   // 눈
-  const closed = blink && mood !== "happy" && mood !== "wink" && mood !== "surprise";
+  const closed = mood === "sleep" || (blink && mood !== "happy" && mood !== "wink" && mood !== "surprise");
   if (closed) { shutEye(EL[0], EL[1]); shutEye(ER[0], ER[1]); }
   else if (mood === "happy") { happyEye(EL[0], EL[1]); happyEye(ER[0], ER[1]); }
   else if (mood === "wink") { dot(EL[0], EL[1], 17); happyEye(ER[0], ER[1]); }
   else if (mood === "surprise") {
-    for (const [x, y] of [EL, ER]) { g.fillStyle = "#fff"; g.beginPath(); g.arc(x, y, 31, 0, 7); g.fill(); g.strokeStyle = INK; g.lineWidth = 6; g.stroke(); dot(x, y, 12); }
+    for (const [x, y] of [EL, ER]) { g.fillStyle = "#fff"; g.beginPath(); g.arc(x, y, 31, 0, 7); g.fill(); g.strokeStyle = INK; g.lineWidth = 6; g.stroke(); dot(x, y, 12, 0.8); }
   }
-  else if (mood === "think") { dot(EL[0] + 14, EL[1] - 13, 16); dot(ER[0] + 14, ER[1] - 13, 16); }
+  else if (mood === "think") { dot(EL[0] + 14, EL[1] - 13, 16, 0.5); dot(ER[0] + 14, ER[1] - 13, 16, 0.5); }
   else if (mood === "firm") { dot(EL[0], EL[1] + 2, 15); dot(ER[0], ER[1] + 2, 15); }
   else if (mood === "worry") { dot(EL[0], EL[1] + 6, 17); dot(ER[0], ER[1] + 6, 17); }
   else { dot(EL[0], EL[1], 17); dot(ER[0], ER[1], 17); }
   // 입
   g.strokeStyle = "#7a3b00"; g.lineWidth = 9;
   const mx = 320, my = 226;
-  if (mood === "happy") {
+  const talking = mouthOpen != null && mouthOpen > 0.12 && mood !== "surprise" && mood !== "sleep";
+  if (talking) {                                   // 말하는 중: 열린 정도에 따라 입 모양이 바뀜
+    const o = mouthOpen;
+    g.fillStyle = "#7a1f2b"; g.beginPath(); g.ellipse(mx, my + 6 + o * 8, 18 + o * 20, 7 + o * 26, 0, 0, 7); g.fill();
+    if (o > 0.6) { g.save(); g.clip(); g.fillStyle = "#ff7a8a"; g.beginPath(); g.ellipse(mx, my + 24 + o * 8, 18, 10, 0, 0, 7); g.fill(); g.restore(); }
+  } else if (mood === "sleep") { g.fillStyle = "#7a1f2b"; g.beginPath(); g.ellipse(mx, my + 6, 11, 9, 0, 0, 7); g.fill(); }
+  else if (mood === "happy") {
     g.beginPath(); g.moveTo(mx - 52, my - 20); g.quadraticCurveTo(mx, my + 66, mx + 52, my - 20); g.closePath();
     g.fillStyle = "#7a1f2b"; g.fill();
     g.save(); g.clip(); g.fillStyle = "#ff7a8a"; g.beginPath(); g.ellipse(mx, my + 26, 24, 14, 0, 0, 7); g.fill(); g.restore();
@@ -104,6 +113,9 @@ class Lotto {
     this.t = 0; this.moodT = 0; this.mood = "normal"; this.blink = false; this.blinkIn = 3 + Math.random() * 2; this.blinkT = 0;
     this.userYaw = 0; this.userPitch = 0; this.vel = 0; this.idle = 0; this.dragging = false; this.follow = 0; this.spinT = -1;
     this.symT = 0;
+    this.look = { x: 0, y: 0 }; this.lookT = { x: 0, y: 0 }; this.lookOverride = null; this.shownLook = { x: 0, y: 0 };
+    this.talking = false; this.talkT = 0; this.mouth = null; this.faceDirty = false; this.lastFace = 0;
+    this.act = null; this.actIn = 4 + Math.random() * 3; this.lastAct = "";
     const gold = new THREE.MeshPhysicalMaterial({ color: 0xffc400, roughness: 0.28, clearcoat: 1, clearcoatRoughness: 0.12 });
     const white = new THREE.MeshStandardMaterial({ color: 0xf7f9fd, roughness: 0.7 });
     const navy = new THREE.MeshStandardMaterial({ color: 0x1f2a52, roughness: 0.5 });
@@ -142,7 +154,7 @@ class Lotto {
     }
     gl.add(cylBetween(new THREE.Vector3(-0.1, 0.24, 0.95), new THREE.Vector3(0.1, 0.24, 0.95), 0.022, frame));
     // 박사모
-    const cap = new THREE.Group(); cap.rotation.set(-0.06, 0, -0.05); body.add(cap);
+    const cap = new THREE.Group(); cap.rotation.set(-0.06, 0, -0.05); body.add(cap); this.cap = cap;
     const base = new THREE.Mesh(new THREE.CylinderGeometry(0.58, 0.66, 0.26, 40), navy); base.position.y = 0.84; cap.add(base);
     const board = new THREE.Mesh(new THREE.BoxGeometry(1.75, 0.07, 1.75), navy2); board.position.y = 1.03; board.rotation.y = Math.PI / 4; cap.add(board);
     const btn = new THREE.Mesh(new THREE.SphereGeometry(0.06, 16, 16), goldM); btn.position.y = 1.08; cap.add(btn);
@@ -163,62 +175,111 @@ class Lotto {
     // 그림자 + 표정 기호
     const sh = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 2.6), new THREE.MeshBasicMaterial({ map: shadowTexture(), transparent: true, depthWrite: false }));
     sh.rotation.x = -Math.PI / 2; sh.position.y = 0.01; this.group.add(sh); this.shadow = sh;
-    this.syms = { think: symbolSprite("?", "#5b7cff"), surprise: symbolSprite("!", "#ff4d4d"), happy: symbolSprite("★", "#ffc21a"), wink: symbolSprite("♥", "#ff5c8a") };
+    this.syms = { think: symbolSprite("?", "#5b7cff"), surprise: symbolSprite("!", "#ff4d4d"), happy: symbolSprite("★", "#ffc21a"), wink: symbolSprite("♥", "#ff5c8a"), sleep: symbolSprite("z", "#7c8cff") };
     for (const s of Object.values(this.syms)) { s.position.set(1.05, 2.45, 0.2); this.rig.add(s); }
     this.setMood("normal");
   }
   setMood(m) {
-    if (!MOODS.includes(m)) m = "normal";
-    this.mood = m; this.moodT = 0; this.symT = 0; this.redraw();
+    if (!MOODS.includes(m) && m !== "sleep") m = "normal";
+    this.mood = m; this.moodT = 0; this.symT = 0; this.act = null; this.lookOverride = null; this.redraw();
     for (const s of Object.values(this.syms)) s.visible = false;
   }
-  redraw() { drawFace(this.faceG, this.mood, this.blink); this.faceTex.needsUpdate = true; }
+  redraw() {
+    drawFace(this.faceG, this.mood, this.blink, this.look, this.mouth);
+    this.shownLook = { x: this.look.x, y: this.look.y }; this.lastFace = this.t; this.faceDirty = false; this.faceTex.needsUpdate = true;
+  }
+  setTalking(on) { this.talking = !!on; if (!on) { this.mouth = null; this.faceDirty = true; } }
   spin() { if (this.spinT < 0) { this.spinT = 0; this.spinFrom = this.userYaw; } }
+  /** 가만히 있을 때 가끔 하는 동작(손 흔들기·두리번·폴짝·모자 인사·기지개·춤·한 바퀴) */
+  idleAct(dt, p) {
+    if (!this.act) {
+      if (this.dragging || this.spinT >= 0) return;
+      this.actIn -= dt; if (this.actIn > 0) return;
+      this.startAct(["wave", "look", "hop", "hatTip", "stretch", "wiggle", "twirl"].filter((n) => n !== this.lastAct)[Math.floor(Math.random() * 6)]);
+    }
+    const a = this.act; if (!a) return;
+    a.t += dt; const pr = a.t / a.dur;
+    if (pr >= 1) { this.act = null; this.lookOverride = null; return; }
+    const e = Math.min(1, pr * 5, (1 - pr) * 5), L = (x, y) => x + (y - x) * e;
+    switch (a.name) {
+      case "wave": p.armR = L(p.armR, 2.5 + Math.sin(a.t * 11) * 0.32); p.tz += -0.08 * e; break;
+      case "look": { const sv = Math.sin(pr * Math.PI * 2) * e; p.yaw += sv * 0.6; this.lookOverride = { x: sv, y: -0.1 * e }; break; }
+      case "hop": p.hop += Math.abs(Math.sin(pr * Math.PI * 2)) * 0.28 * e; p.armR = L(p.armR, 1.0); p.armL = L(p.armL, -1.0); break;
+      case "hatTip": p.armR = L(p.armR, 2.1); p.capY = 0.24 * e; p.capZ = -0.4 * e; p.tx += 0.1 * e; break;
+      case "stretch": p.armR = L(p.armR, 2.75); p.armL = L(p.armL, -2.75); p.sy *= 1 + 0.09 * e; p.sx *= 1 - 0.05 * e; break;
+      case "wiggle": p.tz += Math.sin(a.t * 9) * 0.13 * e; p.armR = L(p.armR, 0.9 + Math.sin(a.t * 9) * 0.8); p.armL = L(p.armL, -0.9 - Math.sin(a.t * 9) * 0.8); p.hop += Math.abs(Math.sin(a.t * 9)) * 0.06 * e; break;
+      default: break;
+    }
+  }
+  startAct(name) {
+    const DUR = { wave: 2.4, look: 3.2, hop: 1.5, hatTip: 2.1, stretch: 2.0, wiggle: 2.4, twirl: 1.2 };
+    if (!DUR[name]) return;
+    this.lastAct = name; this.act = { name, t: 0, dur: DUR[name] }; this.actIn = 4 + Math.random() * 5;
+    if (name === "twirl") this.spin();
+  }
   update(dt) {
     this.t += dt; this.moodT += dt; this.idle += dt;
     const t = this.t, mt = this.moodT, m = this.mood;
     // 눈 깜빡임
-    if (this.blinkT > 0) { this.blinkT -= dt; if (this.blinkT <= 0) { this.blink = false; this.redraw(); } }
-    else { this.blinkIn -= dt; if (this.blinkIn <= 0) { this.blink = true; this.blinkT = 0.13; this.blinkIn = 3 + Math.random() * 3; this.redraw(); } }
+    if (this.blinkT > 0) { this.blinkT -= dt; if (this.blinkT <= 0) { this.blink = false; this.faceDirty = true; } }
+    else if (m !== "sleep") { this.blinkIn -= dt; if (this.blinkIn <= 0) { this.blink = true; this.blinkT = 0.13; this.blinkIn = 2.5 + Math.random() * 3.5; this.faceDirty = true; } }
+    // 눈동자가 마우스를 따라감
+    const lk = this.lookOverride || this.lookT, kk = 1 - Math.exp(-9 * dt);
+    this.look.x += (lk.x - this.look.x) * kk; this.look.y += (lk.y - this.look.y) * kk;
+    if (Math.abs(this.look.x - this.shownLook.x) > 0.06 || Math.abs(this.look.y - this.shownLook.y) > 0.06) this.faceDirty = true;
+    // 말하는 입
+    if (this.talking) {
+      this.talkT -= dt;
+      if (this.talkT <= 0) { this.mouth = Math.random() < 0.2 ? 0 : 0.3 + Math.random() * 0.7; this.talkT = 0.08 + Math.random() * 0.09; this.faceDirty = true; }
+    }
+    if (this.faceDirty && (t - this.lastFace > 0.05 || dt === 0)) this.redraw();
     // 사용자 회전(관성·자동 정면 복귀·한 바퀴)
     if (this.spinT >= 0) {
-      this.spinT += dt / 1.1; const p = Math.min(1, this.spinT); this.userYaw = this.spinFrom + Math.PI * 2 * (1 - Math.pow(1 - p, 3));
-      if (p >= 1) { this.spinT = -1; this.idle = 0; }
+      this.spinT += dt / 1.1; const sp = Math.min(1, this.spinT); this.userYaw = this.spinFrom + Math.PI * 2 * (1 - Math.pow(1 - sp, 3));
+      if (sp >= 1) { this.spinT = -1; this.idle = 0; }
     } else if (!this.dragging) {
       this.userYaw += this.vel * dt; this.vel *= Math.exp(-3.2 * dt);
       if (this.idle > 8) { const tgt = Math.round(this.userYaw / (Math.PI * 2)) * Math.PI * 2; this.userYaw += (tgt - this.userYaw) * (1 - Math.exp(-1.6 * dt)); this.userPitch *= Math.exp(-2 * dt); }
     }
     this.group.rotation.y = this.userYaw;
-    // 동작
-    let hop = 0, sx = 1, sy = 1, tz = 0, yawShake = 0, trem = 0, armR = 0.35, armL = -0.35, tx = 0;
+    // 표정별 동작
+    const p = { hop: 0, sx: 1, sy: 1, tz: 0, tx: 0, yaw: 0, trem: 0, armR: 0.35, armL: -0.35, capY: 0, capZ: 0 };
     if (m === "happy") {
-      hop = Math.abs(Math.sin(mt * 7)) * 0.3 * Math.exp(-mt * 1.1);
-      if (mt < 3) armR = 2.5 + Math.sin(mt * 10) * 0.3;
+      p.hop = Math.abs(Math.sin(mt * 7)) * 0.3 * Math.exp(-mt * 1.1);
+      if (mt < 3) p.armR = 2.5 + Math.sin(mt * 10) * 0.3;
       this.symShow("happy", 2.6);
     } else if (m === "surprise") {
-      sy = 1 + 0.13 * Math.exp(-mt * 5) * Math.cos(mt * 28); sx = 1 - 0.07 * Math.exp(-mt * 5) * Math.cos(mt * 28);
-      hop = Math.max(0, Math.sin(mt * 11)) * 0.22 * Math.exp(-mt * 4); armR = 0.8; armL = -0.8;
+      p.sy = 1 + 0.13 * Math.exp(-mt * 5) * Math.cos(mt * 28); p.sx = 1 - 0.07 * Math.exp(-mt * 5) * Math.cos(mt * 28);
+      p.hop = Math.max(0, Math.sin(mt * 11)) * 0.22 * Math.exp(-mt * 4); p.armR = 0.8; p.armL = -0.8;
       this.symShow("surprise", 99);
     } else if (m === "think") {
-      tz = 0.17 * (1 - Math.exp(-mt * 3)) + Math.sin(t * 1.3) * 0.02; armL = -1.0 + Math.sin(t * 1.5) * 0.05;
+      p.tz = 0.17 * (1 - Math.exp(-mt * 3)) + Math.sin(t * 1.3) * 0.02; p.armL = -1.0 + Math.sin(t * 1.5) * 0.05;
       this.symShow("think", 99);
     } else if (m === "firm") {
-      yawShake = Math.sin(mt * 15) * 0.26 * Math.exp(-mt * 1.7); armR = 0.55; armL = -0.55;
+      p.yaw = Math.sin(mt * 15) * 0.26 * Math.exp(-mt * 1.7); p.armR = 0.55; p.armL = -0.55;
     } else if (m === "wink") {
-      tz = -0.1 * (1 - Math.exp(-mt * 4)); if (mt < 3) armR = 2.2 + Math.sin(mt * 7) * 0.25;
+      p.tz = -0.1 * (1 - Math.exp(-mt * 4)); if (mt < 3) p.armR = 2.2 + Math.sin(mt * 7) * 0.25;
       this.symShow("wink", 2.6);
     } else if (m === "worry") {
-      trem = mt < 3 ? Math.sin(t * 42) * 0.014 : 0; tx = -0.07; armR = 0.6; armL = -0.6;
+      p.trem = mt < 3 ? Math.sin(t * 42) * 0.014 : 0; p.tx = -0.07; p.armR = 0.6; p.armL = -0.6;
+    } else if (m === "sleep") {
+      p.tx = 0.1 + Math.sin(t * 1.1) * 0.04; p.armR = 0.2; p.armL = -0.2;
+      this.symShow("sleep", 1e9);
+      const z = this.syms.sleep, ph = (t * 0.5) % 1; z.position.set(0.85 + ph * 0.25, 2.3 + ph * 0.6, 0.2); z.scale.setScalar(0.34 + ph * 0.3); z.material.opacity = 1 - ph * 0.85;
     }
-    const breathe = Math.sin(t * 2.2) * 0.012;
-    this.rig.position.set(trem, Math.sin(t * 2) * 0.03 + hop, 0);
-    this.rig.scale.set(sx, sy * (1 + breathe), sx);
-    this.rig.rotation.set(tx + this.userPitch, yawShake + this.follow * Math.max(0, 1 - Math.abs(((this.userYaw + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI) * 1.6), tz);
-    this.arms[0].rotation.z += (armL - this.arms[0].rotation.z) * (1 - Math.exp(-9 * dt)) * (dt > 0 ? 1 : 1);
-    this.arms[1].rotation.z += (armR - this.arms[1].rotation.z) * (1 - Math.exp(-9 * dt));
-    if (dt === 0) { this.arms[0].rotation.z = armL; this.arms[1].rotation.z = armR; }
-    this.tassel.rotation.z = Math.sin(t * 2.4) * 0.12 + hop * 0.5; this.tassel.rotation.x = Math.cos(t * 1.9) * 0.08;
-    this.shadow.scale.setScalar(1 - hop * 0.6);
+    if (m === "normal" && !this.talking) this.idleAct(dt, p); else if (this.act) { this.act = null; this.lookOverride = null; }
+    if (this.talking) { p.hop += Math.abs(Math.sin(t * 13)) * 0.012; p.tz += Math.sin(t * 5.5) * 0.03; p.armR += Math.sin(t * 4) * 0.12; }   // 말할 때 고개·팔이 까딱
+    const breathe = Math.sin(t * (m === "sleep" ? 1.1 : 2.2)) * (m === "sleep" ? 0.02 : 0.012);
+    this.rig.position.set(p.trem, Math.sin(t * 2) * 0.03 + p.hop, 0);
+    this.rig.scale.set(p.sx, p.sy * (1 + breathe), p.sx);
+    const wrapped = ((this.userYaw + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI;
+    this.rig.rotation.set(p.tx + this.userPitch, p.yaw + this.follow * Math.max(0, 1 - Math.abs(wrapped) * 1.6), p.tz);
+    this.arms[0].rotation.z += (p.armL - this.arms[0].rotation.z) * (1 - Math.exp(-9 * dt));
+    this.arms[1].rotation.z += (p.armR - this.arms[1].rotation.z) * (1 - Math.exp(-9 * dt));
+    if (dt === 0) { this.arms[0].rotation.z = p.armL; this.arms[1].rotation.z = p.armR; }
+    this.cap.position.y = p.capY; this.cap.rotation.z = -0.05 + p.capZ;
+    this.tassel.rotation.z = Math.sin(t * 2.4) * 0.12 + p.hop * 0.5; this.tassel.rotation.x = Math.cos(t * 1.9) * 0.08;
+    this.shadow.scale.setScalar(1 - p.hop * 0.6);
   }
   symShow(key, dur) {
     const s = this.syms[key]; if (!s) return;
@@ -281,9 +342,11 @@ const Lotto3D = {
     const up = () => { if (!drag) return; const tap = drag.moved < 5; drag = null; ch.dragging = false; ch.idle = 0; canvas.style.cursor = "grab"; if (tap && opts.onTap) opts.onTap(); };
     canvas.addEventListener("pointerup", up); canvas.addEventListener("pointercancel", up);
     canvas.addEventListener("dblclick", () => ch.spin());
-    window.addEventListener("pointermove", (e) => {      // 가만히 있을 때는 고개가 마우스를 따라간다
-      if (!visible() || drag) return; const r = el.getBoundingClientRect();
-      ch.follow = Math.max(-0.5, Math.min(0.5, (e.clientX - (r.left + r.width / 2)) / Math.max(300, window.innerWidth) * 1.6));
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    window.addEventListener("pointermove", (e) => {      // 눈동자와 고개가 마우스를 따라간다
+      if (!visible()) return; const r = el.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height * 0.4;
+      ch.lookT.x = clamp((e.clientX - cx) / (window.innerWidth * 0.35), -1, 1); ch.lookT.y = clamp((e.clientY - cy) / (window.innerHeight * 0.35), -1, 1) * 0.8;
+      if (!drag) ch.follow = clamp((e.clientX - cx) / Math.max(300, window.innerWidth) * 1.6, -0.5, 0.5);
     }, { passive: true });
     kick();
     return {
@@ -291,9 +354,33 @@ const Lotto3D = {
       get mood() { return ch.mood; },
       get yaw() { return ch.userYaw; },
       spin() { ch.spin(); },
+      talk(on) { ch.setTalking(on); },
+      wave() { if (ch.mood === "normal") ch.startAct("wave"); },
+      act(name) { if (ch.mood === "normal") ch.startAct(name); },
+      sleep(on) { ch.setMood(on ? "sleep" : "normal"); },
       hop() { const m = ch.mood; ch.setMood("happy"); setTimeout(() => ch.mood === "happy" && ch.setMood(m === "happy" ? "normal" : m), 1400); },
       destroy() { running = false; renderer.dispose(); canvas.remove(); },
     };
+  },
+  /** 시험용: 동작(act)·말하기·졸기·눈동자를 시간 t 초 지난 모습으로 찍는다. 예: poses(300, [{act:"wave", t:0.6}, {talk:0.8}, {mood:"sleep"}]) */
+  poses(size, list, yaw) {
+    const renderer = makeRenderer({ preserveDrawingBuffer: true, antialias: true }); if (!renderer) return null;
+    renderer.setPixelRatio(1); renderer.setSize(size, size, false);
+    const scene = new THREE.Scene(); addLights(scene);
+    const cam = new THREE.PerspectiveCamera(28, 1, 0.1, 50); cam.position.set(0, 1.6, 6.6); cam.lookAt(0, 1.22, 0);
+    const out = [];
+    for (const it of list) {
+      const ch = new Lotto(); ch.userYaw = yaw == null ? 0.2 : yaw; scene.add(ch.group);
+      ch.setMood(it.mood || "normal"); ch.blink = false; ch.actIn = 99;
+      if (it.look) { ch.lookT = ch.look = { x: it.look[0], y: it.look[1] }; }
+      if (it.talk != null) { ch.setTalking(true); ch.mouth = it.talk; }
+      if (it.act) ch.startAct(it.act);
+      ch.t = 1.0;
+      for (let k = 0; k < Math.round((it.t || 0.5) / 0.02); k++) { ch.update(0.02); if (it.talk != null) ch.mouth = it.talk; }
+      ch.update(0); ch.redraw(); renderer.render(scene, cam); out.push(renderer.domElement.toDataURL("image/png")); scene.remove(ch.group);
+    }
+    renderer.dispose(); if (renderer.forceContextLoss) renderer.forceContextLoss();
+    return out;
   },
   /** 표정별 그림(dataURL)을 미리 찍어 둔다 — 채팅 아바타 등 작은 곳에 쓴다. */
   snapshots(size, yaw, moods, view) {

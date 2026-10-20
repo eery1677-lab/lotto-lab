@@ -641,7 +641,7 @@
     try { chat.history = JSON.parse(store.get("chat", "[]")).slice(-20); } catch (e) { chat.history = []; }
     if (!chat.history.length) {
       addMsg("bot", "안녕하세요, 대장님! 저는 로또 공 박사 ‘로또’예요. 당첨 번호를 예측해 드릴 수는 없지만, 실제 자료로 계산한 통계와 ‘나눠 가질 위험이 적은 조합’은 정확하게 알려 드릴 수 있어요. 무엇이 궁금하세요?", null, "happy");
-      if (Pet.chat) Pet.chat.setMood("happy");
+      chatMood("happy"); lottoSay("안녕하세요, 대장님! 궁금한 걸 물어보세요.");
       showWelcomeChips();
     } else {
       chat.history.forEach((m) => addMsg(m.role === "user" ? "user" : "bot", m.content, m.cards, m.mood));
@@ -803,7 +803,16 @@
   });
 
   // ---------------------------------------------------------------- 캐릭터 '로또' (3D 공 박사)
-  const Pet = { snaps: null, machine: null, chat: null, tried: false, timer: 0 };
+  const Pet = { snaps: null, machine: null, chat: null, big: null, tried: false, timer: 0 };
+  // ---- 채팅 쪽 로또(머리의 작은 것 + 큰 화면의 오른쪽 큰 것)를 한꺼번에 다루는 도우미
+  const chatPets = () => [Pet.chat, Pet.big].filter(Boolean);
+  const SAY = { normal: "궁금한 걸 물어보세요, 대장님!", happy: "조회했어요!", think: "자료를 확인하고 있어요…", wink: "추천 조합을 뽑았어요!", surprise: "앗, 이건 인기 모양이에요!", firm: "예측은 안 되지만, 사실은 알려 드려요.", worry: "앗, 문제가 생겼어요." };
+  function lottoSay(text) {
+    const el = $("#lotto-say"); if (!el || !text) return;
+    el.textContent = text; el.style.animation = "none"; void el.offsetHeight; el.style.animation = "";
+  }
+  function chatMood(m) { chatPets().forEach((p) => p.setMood(m)); lottoSay(SAY[m] || SAY.normal); }
+  function chatTalk(on) { chatPets().forEach((p) => p.talk(on)); }
   function avatar(mood) { return `<span class="av" data-mood="${mood}">${Pet.snaps ? `<img alt="로또" src="${Pet.snaps[mood] || Pet.snaps.normal}">` : "🎱"}</span>`; }
   function paintAvatars() {
     if (!Pet.snaps) return;
@@ -834,11 +843,35 @@
     try { Pet.snaps = window.Lotto3D.snapshots(180, 0.22, null, "bust"); } catch (e) { Pet.snaps = null; }
     paintAvatars();
     try {
-      Pet.machine = window.Lotto3D.mount($("#lotto-pet"), { onTap: () => Pet.machine && Pet.machine.hop() });
-      Pet.chat = window.Lotto3D.mount($("#lotto-chat"), { onTap: () => Pet.chat && Pet.chat.hop() });
+      const tap = (p) => () => { if (!p()) return; Math.random() < 0.5 ? p().hop() : p().wave(); };
+      Pet.machine = window.Lotto3D.mount($("#lotto-pet"), { onTap: tap(() => Pet.machine) });
+      Pet.chat = window.Lotto3D.mount($("#lotto-chat"), { onTap: tap(() => Pet.chat) });
+      Pet.big = window.Lotto3D.mount($("#lotto-big"), { onTap: tap(() => Pet.big) });
     } catch (e) { /* 실시간 3D 만 포기 */ }
   }
   $("#brand-lotto").innerHTML = avatar("normal");
+  // 큰 화면의 추천 질문(오른쪽 패널)
+  $$("#chips .chip").forEach((c) => $("#side-chips").appendChild(c.cloneNode(true)));
+  $("#side-chips").addEventListener("click", (e) => { const c = e.target.closest(".chip"); if (c) send(c.textContent); });
+  // 혼잣말(AI 상담 화면에서 가만히 있을 때)
+  const QUIPS = ["번호는 예측 못 해도 통계는 자신 있어요!", "1,000원당 평균 약 500원이 돌아와요. 재미로만 즐겨요, 대장님.", "사람들이 덜 고르는 번호가 나눠 가질 사람이 적어요.", "저를 끌어서 돌려 보세요. 뒤에 LOTTO 6/45가 있어요!", "아래 입력줄이나 오른쪽 추천 질문을 눌러 보세요."];
+  let quipI = 0;
+  setInterval(() => { if (document.body.classList.contains("ai-mode") && !chat.busy && !sleeping && Pet.big) lottoSay(QUIPS[quipI++ % QUIPS.length]); }, 16000);
+  // 오래 가만히 있으면 졸고, 만지면 깬다
+  let lastActive = Date.now(), sleeping = false;
+  const livePets = () => [Pet.machine].concat(chatPets()).filter(Boolean);
+  function wake() {
+    lastActive = Date.now();
+    if (!sleeping) return;
+    sleeping = false; livePets().forEach((p) => p.sleep(false));
+    chatPets().forEach((p) => p.setMood("surprise")); lottoSay("앗, 안 잤어요!");
+    setTimeout(() => chatPets().forEach((p) => p.mood === "surprise" && p.setMood("normal")), 1500);
+  }
+  ["pointermove", "pointerdown", "keydown", "touchstart"].forEach((ev) => window.addEventListener(ev, wake, { passive: true }));
+  setInterval(() => {
+    if (sleeping || Date.now() - lastActive < 90000 || chat.busy || busyGen) return;
+    sleeping = true; livePets().forEach((p) => p.sleep(true)); lottoSay("zZ… 졸려요…");
+  }, 5000);
   window.addEventListener("lotto3d-ready", initPet);
   if (window.Lotto3D) initPet();
 
@@ -863,13 +896,13 @@
     addMsg("user", text);
     chat.history.push({ role: "user", content: text });
     const el = addMsg("bot", "", null, "think");
-    if (Pet.chat) Pet.chat.setMood("think");
+    chatMood("think");
     const usedTools = [];
     const body = $(".body", el);
     body.innerHTML = `<span class="typing">자료 확인 중…</span>`;
     chat.busy = true; chat.ctrl = new AbortController();
     $("#chat-send").textContent = "중지";
-    let answer = "", facts = "", thinking = false, revised = null, serverCheck = null;
+    let answer = "", facts = "", thinking = false, revised = null, serverCheck = null, talking = false;
     const cards = [];
     try {
       const r = await fetch("/api/chat", {
@@ -919,6 +952,7 @@
           if (d.reasoning_content || d.reasoning) { thinking = true; body.innerHTML = `<span class="typing">생각 중…</span>`; }
           if (d.content) {
             answer += d.content;
+            if (!talking) { talking = true; chatTalk(true); }
             const shown = answer.replace(/<think>[\s\S]*?(<\/think>|$)/g, "").trim();
             body.innerHTML = shown ? md(shown) : `<span class="typing">${thinking || /<think>/.test(answer) ? "생각 중…" : "작성 중…"}</span>`;
             $("#chat-log").scrollTop = 1e9;
@@ -950,9 +984,10 @@
       }
     }
     appendCards(el, cards);
+    chatTalk(false);
     const mood = moodFor(answer, usedTools);
     setAvatarMood(el, mood);
-    if (Pet.chat) Pet.chat.setMood(mood);
+    chatMood(mood);
     chat.history.push(cards.length ? { role: "assistant", content: answer, cards, mood } : { role: "assistant", content: answer, mood });
     store.set("chat", JSON.stringify(chat.history.slice(-20)));
     chat.busy = false; chat.ctrl = null;

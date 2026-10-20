@@ -159,3 +159,10 @@
 - 예측법 7개(51~1246회 워크포워드) 모두 p≥0.05.
 - 화면 8개: 1440px·375px 에서 가로 넘침 0, 12px 미만 글자 0, 다크 모드 확인. LM Studio(gemma-4-e4b heretic)로 채팅 확인.
 - 맥에서는 아직 실행해 보지 않았다(`start_mac.command`).
+
+## 큰 화면 레이아웃 · 로또 움직임 (2026-10-20)
+
+- 1500px 이상에서 AI 상담은 2단: 왼쪽 대화, 오른쪽 `#chat-side`(큰 3D 로또·말풍선 `#lotto-say`·추천 질문). 1400px 이상에서는 추첨기 옆 `.lotto-pet` 이 240px. `main{margin:0 auto}`, `.ai-mode main{max-width:1560px}`.
+- `app.js`: `Pet.big`, `chatPets()/chatMood()/chatTalk()/lottoSay()`로 작은 로또·큰 로또를 함께 제어. 답이 흘러나오는 동안 입이 움직이고, 90초 가만히 있으면 졸고(zZ) 만지면 깬다. 혼잣말 16초 간격.
+- `lotto3d.js`: 눈동자가 커서를 따라가고, 대기 동작(손 흔들기·모자 인사·기지개·몸 흔들기·한 바퀴)이 무작위로 나온다. 시험용 `Lotto3D.poses(size, list, yaw)` — 창이 앞에 없을 때(rAF 정지) 포즈를 이미지로 뽑는다.
+- 서버 코드는 안 바꿨다(정적 파일만, Ctrl+F5).
