@@ -1378,6 +1378,8 @@
   function roomOpen() {
     if (Room.open || !window.Lotto3D || !window.Lotto3D.ok) return;
     const box = $("#meeting-room"); if (!box) return;
+    const side = $("#chat-side");   // 큰 화면: 비어 있는 오른쪽 칸(로또 큰 그림 자리)에 회의실을 끼워 넣는다
+    if (side && document.body.classList.contains("ai-mode") && window.matchMedia("(min-width:1500px)").matches) { side.prepend(box); box.classList.add("docked"); }
     box.hidden = false; document.body.classList.add("in-room");
     if (!Room.api) Room.api = window.Lotto3D.mountRoom($("#mr-scene"), {});
     if (!Room.api) { box.hidden = true; document.body.classList.remove("in-room"); return; }
@@ -1386,7 +1388,7 @@
   function roomClose() {
     if (!Room.open) return; Room.open = false;
     if (Room.api) { Room.api.speak(null, false); }
-    setTimeout(() => { if (Room.open) return; const b = $("#meeting-room"); if (b) b.hidden = true; document.body.classList.remove("in-room"); $("#mr-text").textContent = ""; $("#mr-who").textContent = ""; }, 600);
+    setTimeout(() => { if (Room.open) return; const b = $("#meeting-room"); if (b) { b.hidden = true; if (b.classList.contains("docked")) { b.classList.remove("docked"); document.body.appendChild(b); } } document.body.classList.remove("in-room"); $("#mr-text").textContent = ""; $("#mr-who").textContent = ""; }, 600);
   }
   function roomLine(who, text) {
     if (!Room.open || !Room.api) return; const api = Room.api;

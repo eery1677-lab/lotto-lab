@@ -607,7 +607,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         try:
             if body.get("mode") == "ai":
-                ai_pick.run(a, ask, models, self._sse, cast)
+                w = body.get("window"); w = 0 if w in ("all", 0, "0") else (int(w) if str(w).isdigit() else ai_pick.WINDOW)
+                ai_pick.run(a, ask, models, self._sse, cast, w)
             elif research_mode:
                 research.run(a, ask, models, self._sse, str(body.get("topic") or ""), cast)
             else:

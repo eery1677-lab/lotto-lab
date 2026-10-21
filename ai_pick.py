@@ -16,6 +16,7 @@ NAME = meeting.NAME
 WINDOW = 30
 
 COMMON = (
+    "[당첨 기록]은 회차 번호 순서대로 한 줄씩 있고 맨 아래가 가장 최근이다.\n"
     "너희는 '로또 확률 연구소'의 AI 캐릭터(로또, 뽀또, 꼼꼼이)이고, 이번엔 **코드의 도움 없이** [당첨 기록]만 보고 직접 읽고 세어 보고 의논해서 대장님을 위한 번호를 고른다. 사용자는 반드시 '대장님'이라고만 부른다.\n"
     "[반드시 지킬 것]\n"
     "1. 번호는 로또 6/45 규칙(1~45, 서로 다른 6개)을 지킨다. 번호를 말할 땐 '3 12 19 27 33 41'처럼 숫자만 나란히 쓴다.\n"
@@ -25,11 +26,10 @@ COMMON = (
 )
 
 
-def _data_text(a):
-    rows = []
-    for d in a.draws[-WINDOW:]:
-        rows.append(f"{d['no']}회: " + " ".join(map(str, d["nums"])) + f" (보너스 {d['bonus']})")
-    return "\n".join(rows)
+def _data_text(a, window=WINDOW):
+    """최근 window 회(0 이면 전체)의 당첨 기록을 한 줄씩. 짧게: '1246: 3 11 20 25 37 42+5'."""
+    ds = a.draws if not window else a.draws[-window:]
+    return "\n".join(f"{d['no']}: " + " ".join(map(str, d["nums"])) + f"+{d['bonus']}" for d in ds)
 
 
 def combo_of(text):
@@ -96,17 +96,19 @@ def records(a):
     return out
 
 
-def run(a, ask, models, emit, cast=None):
+def run(a, ask, models, emit, cast=None, window=WINDOW):
     cast = [x for x in (cast or ["lotto", "ppoddo", "kkom"]) if x in NAME]
     emit({"type": "start", "models": models, "cast": cast, "mode": "ai"})
-    data = _data_text(a)
+    window = 0 if window in (0, None) or window >= len(a.draws) else int(window)
+    data = _data_text(a, window)
+    n_data = len(a.draws) if not window else window
     nxt = a.draws[-1]["no"] + 1
     st = meeting.State()
     mine = {}                      # who -> 제안한 번호 6개
 
     def say(who, instruction, fallback, want_combo=False, no_combo=False):
         talk = "\n".join(f"{NAME[w]}: {t}" for w, t in st.lines[-8:]) or "(아직 없음)"
-        ctx = f"[당첨 기록] 최근 {WINDOW}회\n{data}\n\n[지금까지 대화]\n{talk}"
+        ctx = f"[당첨 기록] {'전체' if not window else '최근'} {n_data}회 (회차: 번호 6개+보너스)\n{data}\n\n[지금까지 대화]\n{talk}"
         user = ctx + f"\n\n[네 차례] 너는 '{NAME[who]}'. {instruction}\n{NAME[who]}의 말만 {'한두' if not want_combo else '두'} 문장으로 써라." + ("\n번호 6개를 '3 12 19 27 33 41'처럼 숫자만 나란히 써서 말에 꼭 넣어라." if want_combo else "")
         text = ""
         for attempt in range(2):
@@ -177,7 +179,7 @@ def run(a, ask, models, emit, cast=None):
         "평균 조합": {"1등 기대 수령액 세전": items[0]["raw"]["평균 조합 세전"] if items else 0, "세후": 0, "1000원당 기대 환급": items[0]["raw"]["1000원당 기대 환급"] if items else 0} if items else {}}}
     try:
         _save({"draw": nxt, "at": time.strftime("%Y-%m-%d %H:%M"), "models": models, "picks": [{"who": it["who"], "nums": it["nums"]} for it in items],
-               "lines": [[w, t] for w, t in st.lines]})
+               "lines": [[w, t] for w, t in st.lines], "window": n_data})
     except OSError:
         pass
     emit({"type": "ai_picks", "items": [{k: v for k, v in it.items() if k != "raw"} for it in items], "card": card})
