@@ -221,6 +221,11 @@ def run(a, ask, models, emit):
         "좋아, 그럼 그렇게 정하자!", False)
     # 8. 최종 선택(코드가 검증) — 로또 AI 가 JSON 으로 정리, 실패하면 대화에서 뽑고 그래도 안 되면 인기도가 낮은 순
     picks, source = _final_picks(a, ask, models, st, context())
+    if len(picks) < 2:      # 한 게임만 고르면 인기도가 낮은 다른 후보를 하나 더 붙인다(회의에서 정한 것이 아니라는 표시로 source 에 남김)
+        extra = sorted((c for c in st.cands if c["letter"] not in picks), key=lambda c: c["raw"]["인기도"])
+        if extra:
+            picks = picks + [extra[0]["letter"]]
+            source += "+code"
     chosen = [c for c in st.cands if c["letter"] in picks]
     card = {"name": "generate_numbers", "result": {
         "방법": "코드가 뽑은 후보 중 로또와 뽀또가 회의로 고른 조합", "1등 확률": "1/8,145,060 (모든 조합 동일)",
