@@ -1351,6 +1351,36 @@
 
   // ---------------------------------------------------------------- 로또 ↔ 뽀또 대화 (사실은 코드, 말투는 AI — /api/duo)
   // 회의 줄 하나를 보여 주는 시간(소리가 없을 때 글 속도). 설정 → 회의 속도(빠르게·보통·느리게)
+  // ---- 3D 회의실: 모이면 열리고(로밍 캐릭터는 숨김), 한 줄마다 말하는 사람·몸짓·듣는 사람 반응을 보여 주고, 끝나면 닫힌다
+  const Room = { api: null, open: false, tm: 0 };
+  const WHO_LABEL = { lotto: "로또", ppoddo: "뽀또", kkom: "꼼꼼이" };
+  function roomOpen() {
+    if (Room.open || !window.Lotto3D || !window.Lotto3D.ok) return;
+    const box = $("#meeting-room"); if (!box) return;
+    box.hidden = false; document.body.classList.add("in-room");
+    if (!Room.api) Room.api = window.Lotto3D.mountRoom($("#mr-scene"), {});
+    if (!Room.api) { box.hidden = true; document.body.classList.remove("in-room"); return; }
+    Room.open = true; Room.api.sit(true);
+  }
+  function roomClose() {
+    if (!Room.open) return; Room.open = false;
+    if (Room.api) Room.api.speak(null, false);
+    setTimeout(() => { if (Room.open) return; const b = $("#meeting-room"); if (b) b.hidden = true; document.body.classList.remove("in-room"); $("#mr-text").textContent = ""; $("#mr-who").textContent = ""; }, 600);
+  }
+  function roomLine(who, text) {
+    if (!Room.open || !Room.api) return; const api = Room.api;
+    api.speak(who, true);
+    const cap = $("#mr-text"); $("#mr-who").textContent = WHO_LABEL[who] || who; $("#mr-who").className = who;
+    cap.className = ""; void cap.offsetWidth; cap.className = "pop"; cap.textContent = text;
+    // 말하는 사람의 몸짓: 후보를 말하면 가리키고, 걱정·예산이면 으쓱, 질문이면 손을 들고, 보통은 손짓
+    const g = /[A-H]\s*(조합|후보|가|는|를|랑|와|,)|추천|후보/.test(text) ? "point" : /걱정|예산|부담|고민/.test(text) ? "shrug" : /[?？]/.test(text) ? "talk" : (Math.random() < 0.7 ? "talk" : "nod");
+    api.gesture(who, g); api.setMood(who, /[?？]/.test(text) ? "think" : /재미|좋|예쁘|끌/.test(text) ? "happy" : "normal");
+    // 듣는 사람 반응: 끄덕이거나(가끔) 안경을 벗어 닦는다(로또·꼼꼼이)
+    ["lotto", "ppoddo", "kkom"].filter((k) => k !== who).forEach((k, i) => {
+      setTimeout(() => { if (!Room.open) return; const r = Math.random(); api.gesture(k, r < 0.45 ? "nod" : (k !== "ppoddo" && r < 0.62 ? "glasses" : (r < 0.75 ? "think" : "nod"))); }, 700 + i * 500);
+    });
+  }
+  function roomEnd(who) { if (Room.open && Room.api) Room.api.speak(who, false); }
   const MTG_SPEED = { fast: [1100, 48], normal: [2000, 80], slow: [3000, 110] };
   const lineMs = (text, spoken) => { const [mn, per] = MTG_SPEED[store.get("mtg_speed", "fast")] || MTG_SPEED.fast; return Math.max(spoken ? mn * 0.8 : mn, text.length * per); };
   const plainSpeech = (t) => t.replace(/\p{Extended_Pictographic}/gu, " ").replace(/\s+/g, " ").trim();
@@ -1454,7 +1484,7 @@
       const ev = q.shift();
       if (ev.type === "__end" || ctrl.signal.aborted || my !== Voice.q) break;
       if (ev.type === "line") {
-        if (!gathered) { const t0 = Date.now(); while (!gatherReady() && Date.now() - t0 < 3500) await new Promise((r) => setTimeout(r, 100)); gathered = true; }
+        if (!gathered) { const t0 = Date.now(); while (!gatherReady() && Date.now() - t0 < 3500) await new Promise((r) => setTimeout(r, 100)); gathered = true; roomOpen(); }
         gotLine = true;
         const isL = ev.who === "lotto", isK = ev.who === "kkom", nm = isL ? "로또" : isK ? "꼼꼼이" : "뽀또";
         const pet = isL ? (showLotto ? Pet.roam : null) : isK ? (showKkom ? Pet.kkom : null) : (showGirl ? Pet.girl : null);
@@ -1465,7 +1495,9 @@
         else if (isK) { if (showKkom) { kkomSay(ev.text, ms, true); kkomMood("firm", 1800); } }
         else if (showGirl) { girlSay(ev.text, ms, true); girlMood(/[?？]|…/.test(ev.text) ? "think" : "happy", 1800); }
         said.push(`${nm}: ${ev.text}`);
+        roomLine(ev.who, ev.text);
         await duoVoice(ev.text, ev.who, my, pet, ev.audio);
+        roomEnd(ev.who);
       } else if (ev.type === "cands") {
         duo.insertAdjacentHTML("beforeend", `<div class="duo-card">${candsCardHTML(ev.items, ev.added)}</div>`); $("#chat-log").scrollTop = 1e9;
       } else if (ev.type === "check") {
@@ -1477,7 +1509,7 @@
       } else if (ev.type === "error") { err = ev.message || "알 수 없는 오류"; }
     }
     Roam.talking = false; Pet.roam && Pet.roam.talk(false); Pet.girl && Pet.girl.talk(false); Pet.kkom && Pet.kkom.talk(false);
-    setTimeout(gatherEnd, 2500);                           // 마무리 인사 뒤 잠시 있다가 흩어진다
+    roomClose(); setTimeout(gatherEnd, 2500);              // 마무리 인사 뒤 회의실이 닫히고 잠시 뒤 흩어진다
     chat.busy = false; $("#chat-send").textContent = "보내기";
     if (!gotLine && err === "NOAPI") return runDuoClassic(text, { el });         // 서버가 옛 버전이면 예전 방식으로
     if (err && err !== "NOAPI") duo.insertAdjacentHTML("beforeend", `<div class="duo-note">회의가 중간에 멈췄어요: ${esc(err)}</div>`);
