@@ -1089,18 +1089,37 @@
     }
   }
   // 회의 자리: 화면 아래쪽 가운데에 나란히(뽀또 · 로또 · 꼼꼼이). AI 상담 화면(넓은 화면)에서는 입력줄 위로.
+  // 회의 자리: 대화 내용을 가리지 않게 대화창 오른쪽 빈 공간에 모인다.
+  //  · 빈 공간이 셋이 나란히 설 만큼 넓으면 가로로(뽀또 · 로또 · 꼼꼼이), 한 명 폭만 있으면 세로로 줄 서기
+  //  · 빈 공간이 없으면(휴대폰 등) 예전처럼 입력줄 위 가운데
   function gatherStart() {
     if (!Roam.on) return;
-    const { maxX, maxY, minY } = roamBounds(), gap = Roam.W * 1.02;
+    const { maxX, maxY, minY } = roamBounds(), W = Roam.W, H = Roam.H;
     const names = ["girl", "lotto", "kkom"].filter(walkerOn), n = names.length;
-    const cx = Math.max(8, Math.min(maxX, innerWidth / 2 - Roam.W / 2));
-    const y = Math.max(minY, maxY - (document.body.classList.contains("ai-mode") && !Roam.small ? 80 : 0));
+    const log = $("#chat-log");
+    let r = log && log.offsetParent ? log.getBoundingClientRect() : null;
+    if (r && !Roam.small && innerWidth - r.right - 12 < W + 8) {               // 오른쪽 여백이 좁으면 대화창을 한 칸 줄여서 자리를 만든다
+      document.body.classList.add("meeting-side"); r = log.getBoundingClientRect();
+    }
+    const free = r ? innerWidth - r.right - 12 : 0;
+    const spots = [];
+    if (r && !Roam.small && free >= n * W * 1.02 + 16) {                       // 오른쪽에 가로로
+      const cx = r.right + 12 + free / 2 - W / 2, y = Math.max(minY, Math.min(maxY, r.top + r.height * 0.5 - H / 2));
+      names.forEach((_, i) => spots.push({ x: cx + (i - (n - 1) / 2) * W * 1.02, y }));
+    } else if (r && !Roam.small && free >= W + 8) {                              // 오른쪽에 세로로
+      const x = Math.min(maxX, r.right + 12 + (free - W) / 2), y0 = Math.max(minY, Math.min(maxY - (n - 1) * H * 0.8, r.top + r.height / 2 - (n * H * 0.8) / 2));
+      names.forEach((_, i) => spots.push({ x, y: y0 + i * H * 0.8 }));
+    } else {                                                                     // 공간이 없으면 입력줄 위 가운데
+      const cx = Math.max(8, Math.min(maxX, innerWidth / 2 - W / 2));
+      const y = Math.max(minY, maxY - (document.body.classList.contains("ai-mode") && !Roam.small ? 80 : 0));
+      names.forEach((_, i) => spots.push({ x: cx + (i - (n - 1) / 2) * W * 1.02, y }));
+    }
     Gather.spots = {};
-    names.forEach((k, i) => { Gather.spots[k] = { x: Math.max(8, Math.min(maxX, cx + (i - (n - 1) / 2) * gap)), y }; wstate(WALK[k].st()).arrived = false; });
+    names.forEach((k, i) => { Gather.spots[k] = { x: Math.max(8, Math.min(maxX, spots[i].x)), y: Math.max(minY, Math.min(maxY, spots[i].y)) }; wstate(WALK[k].st()).arrived = false; });
     Gather.on = true;
   }
   function gatherEnd() {
-    Gather.on = false; Gather.spots = null;
+    Gather.on = false; Gather.spots = null; document.body.classList.remove("meeting-side");
     for (const k in WALK) { const w = wstate(WALK[k].st()); w.rest = rnd(0.6, 3); w.left = 0; w.arrived = false; }
   }
   const gatherReady = () => !Gather.on || Object.keys(Gather.spots || {}).every((k) => !walkerOn(k) || wstate(WALK[k].st()).arrived);

@@ -517,3 +517,6 @@ body.roam-on .lotto-pet, body.roam-on .lotto-chat, body.roam-on .lotto-big { dis
 /* 이름을 불러 답한 캐릭터 표시 */
 .msg.who-ppoddo .who b { color: #c2185b; }
 .msg.who-kkom .who b { color: #0f766e; }
+
+/* 회의 중 오른쪽 여백이 좁으면 대화창을 한 칸(캐릭터 폭) 줄여 셋이 설 자리를 만든다 */
+body.meeting-side .chat-log, body.meeting-side .chat-dock { margin-right: 176px; }
