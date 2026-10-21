@@ -8,7 +8,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#f5b800">
 <link rel="apple-touch-icon" href="icon-180.png">
-<link rel="stylesheet" href="style.css?v=39">
+<link rel="stylesheet" href="style.css?v=40">
 </head>
 <body>
 <div class="app">
@@ -248,6 +248,7 @@
               <button class="chip">이번 주 번호 추천해 줘</button>
               <button class="chip">셋이 이번 주 번호를 상의해 줘</button>
               <button class="chip">핫넘버가 효과 있는지 통계 회의 해 줘</button>
+              <button class="chip">AI 셋이서만 번호를 뽑아 줘 (코드 없이)</button>
               <button class="chip">핫넘버·콜드넘버는 효과가 있어?</button>
               <button class="chip">로또가 정말 무작위인지 설명해 줘</button>
               <button class="chip">미국 로또 당첨 사례는 어떻게 된 거야?</button>
@@ -360,6 +361,8 @@
           <label class="switch"><input type="checkbox" id="kkom-btn"><i></i></label></div>
         <div class="set-row"><div class="set-txt"><b>위쪽 카드 띠</b><span>캐릭터 카드가 오른쪽에서 왼쪽으로 흘러가는 띠예요. AI 상담 화면에서는 대화 공간을 위해 숨겨요.</span></div>
           <label class="switch"><input type="checkbox" id="marquee-on"><i></i></label></div>
+        <div class="set-row"><div class="set-txt"><b>번호 회의 방식</b><span>"상의해 줘"라고 할 때 쓸 방식이에요. <b>코드 후보</b> = 코드가 후보를 뽑고 AI 가 고름 · <b>AI 단독</b> = 코드 없이 AI 셋이 최근 기록을 직접 읽고 번호를 고름(연구용, 틀릴 수 있음).</span></div>
+          <select id="mtg-mode"><option value="code">코드 후보 (기본)</option><option value="ai">AI 단독 (연구)</option></select></div>
         <div class="set-row"><div class="set-txt"><b>회의 속도</b><span>셋이 회의할 때 한 줄을 보여 주는 속도예요(소리가 없을 때). 빠를수록 실시간 대화에 가까워요.</span></div>
           <select id="mtg-speed"><option value="fast">빠르게</option><option value="normal">보통</option><option value="slow">느리게</option></select></div>
         <div class="set-row"><div class="set-txt"><b>통통 소리</b><span>뛸 때 나는 작은 효과음이에요.</span></div>
@@ -386,6 +389,10 @@
           </select></div>
         <div id="voice-rows"></div>
         <div class="set-note" id="voice-note">캐릭터별 목소리는 "로컬 AI 목소리"일 때 쓰여요.</div>
+      </div>
+      <div class="set-group">
+        <h2>AI 단독 회의 연구 기록</h2>
+        <div id="ai-records"></div>
       </div>
       <div class="set-group">
         <h2>휴대폰에서 보기</h2>
@@ -418,7 +425,7 @@
 </div>
 <script src="vendor/qrcode.min.js"></script>
 <script src="machine.js?v=8"></script>
-<script src="app.js?v=60"></script>
+<script src="app.js?v=61"></script>
 <script type="module" src="lotto3d.js?v=23"></script>
 </body>
 </html>

@@ -23,6 +23,7 @@ import answer_check
 import briefing
 import chat_tools
 import duo
+import ai_pick
 import meeting
 import research
 import tickets
@@ -434,6 +435,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(s)
         if path == "/api/network":
             return self._json({"lan": LAN["on"], "port": PORT, "ips": _local_ips()})
+        if path == "/api/ai-picks":
+            return self._json({"records": ai_pick.records(analyzer())})
         if path == "/api/tts/voices":
             v = _voices_read()
             out = {k: {"label": c.get("label", k), "speaker": c.get("speaker", "sohee"), "style": c.get("style", ""),
@@ -603,7 +606,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         try:
-            if research_mode:
+            if body.get("mode") == "ai":
+                ai_pick.run(a, ask, models, self._sse, cast)
+            elif research_mode:
                 research.run(a, ask, models, self._sse, str(body.get("topic") or ""), cast)
             else:
                 meeting.run(a, ask, models, self._sse, cast)

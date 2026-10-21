@@ -70,13 +70,23 @@
     store.set("view", v);
     if (v === "ai") initChat();
     if (v === "settings" && $("#set-model-lotto").options.length <= 1) loadModels();
-    if (v === "settings") loadVoices();        // 캐릭터별 모델 목록은 설정 탭에서도 필요
+    if (v === "settings") { loadVoices(); loadAiRecords(); }        // 캐릭터별 모델 목록은 설정 탭에서도 필요
     window.scrollTo(0, 0);
   }
   $$(".nav-btn").forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
   $("#settings-close").addEventListener("click", () => showView(viewBeforeSettings || "home"));
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#view-settings").classList.contains("active") && $("#phone-modal").hidden) showView(viewBeforeSettings || "home"); });
   // ---- 캐릭터별 목소리(로컬 AI 목소리): 정해진 9가지 중 고르기 + 말투 한 줄 + 들어 보기
+  // ---- AI 단독 회의 연구 기록: 고른 번호와, 그 회차 추첨이 끝났으면 맞힌 개수(참고)
+  async function loadAiRecords() {
+    const box = $("#ai-records"); if (!box) return;
+    let d; try { d = await (await fetch("/api/ai-picks")).json(); } catch (e) { box.innerHTML = `<div class="set-note">서버를 껐다가 다시 켜면 연구 기록이 나타나요.</div>`; return; }
+    const rs = d.records || [];
+    if (!rs.length) { box.innerHTML = `<div class="set-note">아직 기록이 없어요. 채팅에서 "AI 셋이서만 번호를 뽑아 줘"라고 해 보세요.</div>`; return; }
+    const nm = { lotto: "로또", ppoddo: "뽀또", kkom: "꼼꼼이" };
+    box.innerHTML = rs.slice(0, 8).map((r) => `<div class="air"><div class="air-h"><b>${r.draw}회</b> <span class="muted small">${esc(r.at)}${r.result ? " · 추첨 결과: " + r.result.join(" ") : " · 추첨 전"}</span></div>
+      ${r.picks.map((p) => `<div class="air-row"><span class="air-who">${nm[p.who] || p.who}</span>${balls(p.nums, null, "sm")}<span class="small muted">${p.match == null ? "결과 대기" : "맞힌 개수 " + p.match + "개"}</span></div>`).join("")}</div>`).join("");
+  }
   async function loadVoices() {
     const box = $("#voice-rows"); if (!box) return;
     let data;
@@ -1308,6 +1318,7 @@
   Kkom.on = store.get("kkom", "1") === "1"; $("#kkom-btn").checked = Kkom.on;
   Roam.snd = store.get("snd", "1") === "1"; $("#snd-btn").checked = Roam.snd;
   $("#roam-btn").addEventListener("change", (e) => setRoam(e.target.checked));
+  { const mm = $("#mtg-mode"); if (mm) { mm.value = store.get("meeting_mode", "code"); mm.addEventListener("change", () => store.set("meeting_mode", mm.value)); } }
   { const sp = $("#mtg-speed"); if (sp) { sp.value = store.get("mtg_speed", "fast"); sp.addEventListener("change", () => store.set("mtg_speed", sp.value)); } }
   { const on = store.get("marquee", "1") === "1", mq = $("#marquee");
     $("#marquee-on").checked = on; if (mq) mq.hidden = !on; buildMarquee();
@@ -1483,7 +1494,7 @@
     (async () => {                                          // 서버가 한 줄씩 보내는 이벤트를 큐에 쌓는다
       try {
         const r = await fetch(mode === "research" ? "/api/research" : "/api/meeting", { method: "POST", headers: { "Content-Type": "application/json" }, signal: ctrl.signal,
-          body: JSON.stringify({ base: lmsBase(), topic: text, cast: ["lotto", "ppoddo"].concat(Kkom.on ? ["kkom"] : []), models: { lotto: charModel("lotto"), ppoddo: charModel("ppoddo"), kkom: charModel("kkom") } }) });
+          body: JSON.stringify({ base: lmsBase(), topic: text, mode: mode === "ai" ? "ai" : undefined, cast: ["lotto", "ppoddo"].concat(Kkom.on ? ["kkom"] : []), models: { lotto: charModel("lotto"), ppoddo: charModel("ppoddo"), kkom: charModel("kkom") } }) });
         if (!r.ok || !r.body) throw new Error(r.status === 404 ? "NOAPI" : `오류 ${r.status}`);
         const rd = r.body.getReader(), dec = new TextDecoder(); let buf = "";
         for (;;) {
@@ -1527,6 +1538,10 @@
       } else if (ev.type === "check") {
         if (Room.open) { Room.api.check(ev.letter, ev.pop, ev.co); roomKinetic("", "lotto", "인기도 " + ev.pop); }
         duo.insertAdjacentHTML("beforeend", `<div class="duo-note">로또가 후보 ${ev.letter}를 검사했어요 · 인기도 ${ev.pop} · 1등 동반 약 ${ev.co}명 · 알려진 인기 모양: ${esc(ev.pattern)}</div>`);
+      } else if (ev.type === "ai_picks") {                       // AI 가 코드 없이 직접 고른 번호: 공중 화면 + 카드(검증 안 됨 표시) + 코드 검사는 참고용
+        card = ev.card; chatMood("wink");
+        duo.insertAdjacentHTML("beforeend", `<div class="duo-note ai-note">AI 셋이 코드 없이 직접 세어서 고른 번호예요(검증 안 됨). 아래 인기도 등은 <b>코드가 나중에 참고용으로 검사</b>한 값이고 번호는 바꾸지 않았어요.</div>`);
+        if (Room.open) { Room.api.setCands(ev.items.map((it) => ({ letter: { lotto: "로", ppoddo: "뽀", kkom: "꼼" }[it.who], nums: it.nums })), false); ev.items.forEach((it) => Room.api.check({ lotto: "로", ppoddo: "뽀", kkom: "꼼" }[it.who], it.pop, it.co)); Room.api.picks(ev.items.map((it) => ({ lotto: "로", ppoddo: "뽀", kkom: "꼼" }[it.who]))); roomKinetic("", "lotto", "AI 단독!"); Object.keys(WHO_LABEL).forEach((k) => Room.api.gesture(k, "cheer")); }
       } else if (ev.type === "result") {                       // 로또가 검정을 돌렸다: 공중 화면 그래프 + 튀어나오는 글자
         duo.insertAdjacentHTML("beforeend", `<div class="duo-note">로또가 검정을 돌렸어요 · ${esc(ev.test)} · <b>p = ${ev.p}</b> · ${esc(ev.verdict)}</div>`);
         if (Room.open) { Room.api.setChart(ev.chart, ev.verdict, ev.vkey); roomKinetic("", "lotto", ev.kin); setTimeout(() => roomKinetic("", "kkom", ev.vkey === "none" ? "구별 안 됨" : ev.vkey === "weak" ? "우연일 수도" : "유의!"), 900); Room.api.gesture("lotto", "point"); }
@@ -1577,6 +1592,8 @@
     if (!text || chat.busy) return;
     $(".chips-welcome")?.remove(); closePop(); stopVoice();
     if (text.length < 90 && (/(통계|검정|가설|연구|분석).{0,14}(회의|상의)|(회의|상의).{0,14}(통계|검정|가설|연구)|연구 회의/.test(text))) return runDuo(text, "research");
+    if (text.length < 90 && /AI\s*(단독|끼리|만|셋이서만)|인공지능\s*(단독|끼리|만)|순수\s*AI|코드\s*없이/i.test(text)) return runDuo(text, "ai");
+    if (/상의|둘이|셋이|회의|번호.{0,6}뽑/.test(text) && text.length < 90 && store.get("meeting_mode", "code") === "ai") return runDuo(text, "ai");
     if (/상의|둘이|셋이|회의/.test(text) && text.length < 90) return runDuo(text);
     const who = whoOf(forceWho || addressee(text));
     const model = $("#lms-model").value;

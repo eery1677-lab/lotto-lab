@@ -11,3 +11,4 @@ voice/.venv/
 voice/*.log
 voice/out/
 voice/models/
+data/ai_picks.json
