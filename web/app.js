@@ -1299,17 +1299,23 @@
   Roam.snd = store.get("snd", "1") === "1"; $("#snd-btn").checked = Roam.snd;
   $("#roam-btn").addEventListener("change", (e) => setRoam(e.target.checked));
   // ---- 답변 읽어 주기 켜고 끄기
-  const TTS_HINT = { 0: "꺼져 있어요.", 1: "이 기기에 들어 있는 한국어 목소리예요. 글이 밖으로 나가지 않아요.", 2: "자연스럽지만 읽을 글이 마이크로소프트 서버로 가요.", 3: "이 PC에서 AI 로 만든 로또·뽀또 목소리예요. 글이 밖으로 나가지 않아요(PC 가 느리면 기기 목소리로 이어 읽어요)." };
+  const TTS_HINT = { 1: "이 기기에 들어 있는 한국어 목소리예요. 글이 밖으로 나가지 않아요.", 2: "자연스럽지만 읽을 글이 마이크로소프트 서버로 가요.", 3: "이 PC에서 AI 로 만든 캐릭터별 목소리예요. 글이 밖으로 나가지 않아요(PC 가 느리면 몇십 초 걸려요)." };
+  const ttsMethod = () => Number(store.get("tts_method", "1")) || 1;           // 마지막으로 고른 방식(처음엔 기기 목소리)
+  function syncTtsUi() {
+    const on = $("#tts-on"), sel = $("#tts-select"), hint = $("#tts-hint"), m = Voice.on ? Voice.mode : ttsMethod();
+    if (on) on.checked = Voice.on; if (sel) sel.value = String(m);
+    if (hint) hint.textContent = (Voice.on ? "" : "지금은 꺼져 있어요. 켜면 ") + (TTS_HINT[m] || "");
+  }
   function setTts(mode) {     // 0 끔 · 1 기기 목소리 · 2 자연스러운(인터넷) 목소리 · 3 로컬 AI 목소리
     Voice.on = mode > 0; Voice.mode = mode || 1; Voice.voice = null; store.set("tts", String(mode));
+    if (mode) store.set("tts_method", String(mode));
     if (!mode) { stopVoice(); chatTalk(false); }
-    const sel = $("#tts-select"); if (sel) sel.value = String(mode);
-    const hint = $("#tts-hint"); if (hint) hint.textContent = TTS_HINT[mode] || "";
+    syncTtsUi();
   }
-  $("#tts-select").addEventListener("change", async () => {
-    const want = Number($("#tts-select").value), prev = Voice.on ? Voice.mode : 0, hello = "안녕하세요, 대장님. 이제 답변을 읽어 드릴게요.";
+  // 켜기: 고른 방식이 이 기기에서 쓸 수 있는지 확인하고, 안 되면 이전 상태로 되돌린다
+  async function applyTts(want) {
+    const prev = Voice.on ? Voice.mode : 0, hello = "안녕하세요, 대장님. 이제 답변을 읽어 드릴게요.";
     const back = (msg) => { toast(msg); setTts(prev); };
-    if (!want) return setTts(0);
     if (!("speechSynthesis" in window) && want !== 3) return back("이 브라우저는 소리 내어 읽기를 지원하지 않아요");
     if (want === 3) { const st = await fetch("/api/tts/status").then((r) => r.json()).catch(() => ({})); if (!st.installed) return back("이 PC에 로컬 AI 목소리가 설치돼 있지 않아요"); }
     if (want === 1 && !pickVoice(1)) return back("이 기기에 한국어 목소리가 없어요");
@@ -1318,6 +1324,11 @@
       if (!confirm("자연스러운 목소리는 인터넷(마이크로소프트 서버)으로 읽을 글을 보냅니다. 로또 상담 답변만 해당하고 고객 정보는 없습니다.\n그래도 쓸까요?")) return setTts(prev);
     }
     setTts(want); speakAnswer(hello);
+  }
+  $("#tts-on").addEventListener("change", (e) => { if (e.target.checked) applyTts(ttsMethod()); else setTts(0); });
+  $("#tts-select").addEventListener("change", () => {
+    const want = Number($("#tts-select").value); store.set("tts_method", String(want));
+    if (Voice.on) applyTts(want); else syncTtsUi();                              // 꺼져 있으면 방식만 기억해 둔다
   });
   if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = () => { Voice.voice = null; };
   { const m = Number(store.get("tts", "0")); setTimeout(() => setTts(m === 3 || (m && pickVoice(m)) ? m : 0), 600); }

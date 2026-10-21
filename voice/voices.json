@@ -3,7 +3,7 @@
     "label": "로또",
     "sample": "lotto.m4a",
     "sample_text": "",
-    "speaker": "sohee",
+    "speaker": "eric",
     "style": "귀엽고 밝은 목소리로, 톤을 높게 통통 튀듯 명랑하게 말해 주세요."
   },
   "ppoddo": {
@@ -17,7 +17,7 @@
     "label": "꼼꼼이",
     "sample": "kkom.m4a",
     "sample_text": "",
-    "speaker": "ryan",
+    "speaker": "dylan",
     "style": "차분하고 또박또박한 회계사 말투로, 조금 낮은 톤으로 침착하게 말해 주세요."
   }
 }
