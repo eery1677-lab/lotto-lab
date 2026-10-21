@@ -1612,6 +1612,19 @@
     $("#chat-send").textContent = "중지";
     let answer = "", facts = "", thinking = false, revised = null, serverCheck = null, talking = false;
     const cards = [];
+    // 타자 치듯 글자가 주르르 나오게: 받은 글(answer)을 타이머가 조금씩 화면에 옮긴다
+    let typed = 0;
+    const clean = () => answer.replace(/<think>[\s\S]*?(<\/think>|$)/g, "").trim();
+    const typeTick = () => {
+      const full = clean();
+      if (typed > full.length) typed = full.length;
+      if (typed < full.length) typed = Math.min(full.length, typed + Math.max(2, Math.ceil((full.length - typed) / 40)));
+      const shown = full.slice(0, typed);
+      if (shown) { bubbleAs(who, shown, 0, true); body.innerHTML = md(shown); }
+      else if (full === "" && answer) body.innerHTML = `<span class="typing">${thinking || /<think>/.test(answer) ? "생각 중…" : "작성 중…"}</span>`;
+      $("#chat-log").scrollTop = 1e9;
+    };
+    const typer = setInterval(typeTick, 30);
     try {
       const r = await fetch("/api/chat", {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: chat.ctrl.signal,
@@ -1653,7 +1666,7 @@
             body.innerHTML = `<span class="typing">검토 중 고칠 곳을 찾아 다시 쓰는 중…</span>`;
             continue;
           }
-          if (j.replace) { answer = ""; continue; }
+          if (j.replace) { answer = ""; typed = 0; continue; }
           if (j.check) { serverCheck = j.check; continue; }
           const d = j.choices && j.choices[0] && j.choices[0].delta;
           if (!d) continue;
@@ -1661,16 +1674,15 @@
           if (d.content) {
             answer += d.content;
             if (!talking) { talking = true; talkAs(who, true); }
-            const shown = answer.replace(/<think>[\s\S]*?(<\/think>|$)/g, "").trim();
-            bubbleAs(who, shown, 0, true);
-            body.innerHTML = shown ? md(shown) : `<span class="typing">${thinking || /<think>/.test(answer) ? "생각 중…" : "작성 중…"}</span>`;
-            $("#chat-log").scrollTop = 1e9;
           }
         }
       }
     } catch (e) {
       if (e.name !== "AbortError") answer = answer || `⚠️ ${e.message}\n\nLM Studio 가 켜져 있고(Developer → Status: Running) 모델이 선택돼 있는지 확인해 주세요.`;
     }
+    // 아직 덜 쳐진 글이 있으면 끝까지 쳐지길 기다린다(중지를 눌렀으면 바로 마무리)
+    while (typed < clean().length && !(chat.ctrl && chat.ctrl.signal.aborted)) await new Promise((r) => setTimeout(r, 30));
+    clearInterval(typer);
     answer = answer.replace(/<think>[\s\S]*?(<\/think>|$)/g, "").trim() || "(답변이 비어 있습니다)";
     body.innerHTML = md(answer);
     if (revised) {
