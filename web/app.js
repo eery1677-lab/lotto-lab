@@ -1360,11 +1360,11 @@
     box.hidden = false; document.body.classList.add("in-room");
     if (!Room.api) Room.api = window.Lotto3D.mountRoom($("#mr-scene"), {});
     if (!Room.api) { box.hidden = true; document.body.classList.remove("in-room"); return; }
-    Room.open = true; Room.api.sit(true);
+    Room.open = true; Room.api.sit(true); Room.api.hideBoard();
   }
   function roomClose() {
     if (!Room.open) return; Room.open = false;
-    if (Room.api) Room.api.speak(null, false);
+    if (Room.api) { Room.api.speak(null, false); }
     setTimeout(() => { if (Room.open) return; const b = $("#meeting-room"); if (b) b.hidden = true; document.body.classList.remove("in-room"); $("#mr-text").textContent = ""; $("#mr-who").textContent = ""; }, 600);
   }
   function roomLine(who, text) {
@@ -1374,11 +1374,24 @@
     cap.className = ""; void cap.offsetWidth; cap.className = "pop"; cap.textContent = text;
     // 말하는 사람의 몸짓: 후보를 말하면 가리키고, 걱정·예산이면 으쓱, 질문이면 손을 들고, 보통은 손짓
     const g = /[A-H]\s*(조합|후보|가|는|를|랑|와|,)|추천|후보/.test(text) ? "point" : /걱정|예산|부담|고민/.test(text) ? "shrug" : /[?？]/.test(text) ? "talk" : (Math.random() < 0.7 ? "talk" : "nod");
+    roomKinetic(text, who);
     api.gesture(who, g); api.setMood(who, /[?？]/.test(text) ? "think" : /재미|좋|예쁘|끌/.test(text) ? "happy" : "normal");
     // 듣는 사람 반응: 끄덕이거나(가끔) 안경을 벗어 닦는다(로또·꼼꼼이)
     ["lotto", "ppoddo", "kkom"].filter((k) => k !== who).forEach((k, i) => {
       setTimeout(() => { if (!Room.open) return; const r = Math.random(); api.gesture(k, r < 0.45 ? "nod" : (k !== "ppoddo" && r < 0.62 ? "glasses" : (r < 0.75 ? "think" : "nod"))); }, 700 + i * 500);
     });
+  }
+  // 튀어나오는 글자: 줄에서 핵심(숫자·돈·후보·확률)을 골라 크게 띄웠다 사라지게 한다
+  const KIN_RE = /(\d[\d,.]*\s*(?:원|명|%|게임|개)|인기도\s*[\d.]+|[pP]\s*값\s*[\d.]+|1\/8,145,060|[A-H]\s*조합|재미로만|예산(?:\s*한도)?|평균보다\s*낮아[^,.!?]{0,6}|확률[은는]?\s*(?:모두\s*)?(?:똑같|같)\S*)/g;
+  function roomKinetic(text, who, forced) {
+    const box = $("#mr-kin"); if (!box || !Room.open) return;
+    const words = forced ? [forced] : [...new Set((text.match(KIN_RE) || []).map((x) => x.replace(/\s+/g, " ").trim()))].slice(0, 2);
+    words.forEach((wd, i) => setTimeout(() => {
+      if (!Room.open) return;
+      const el = document.createElement("span"); el.className = "kin " + (forced ? "final" : who); el.textContent = wd;
+      el.style.left = (8 + Math.random() * 46) + "%"; el.style.top = (6 + Math.random() * 28) + "%";
+      el.addEventListener("animationend", () => el.remove()); box.appendChild(el);
+    }, i * 380));
   }
   function roomEnd(who) { if (Room.open && Room.api) Room.api.speak(who, false); }
   const MTG_SPEED = { fast: [1100, 48], normal: [2000, 80], slow: [3000, 110] };
@@ -1500,12 +1513,15 @@
         roomEnd(ev.who);
       } else if (ev.type === "cands") {
         duo.insertAdjacentHTML("beforeend", `<div class="duo-card">${candsCardHTML(ev.items, ev.added)}</div>`); $("#chat-log").scrollTop = 1e9;
+        if (Room.open) { Room.api.setCands(ev.items, !!ev.added); roomKinetic("", "lotto", ev.added ? "새 후보!" : "후보 " + ev.items.length + "개!"); Room.api.gesture("lotto", "point"); }
       } else if (ev.type === "check") {
+        if (Room.open) { Room.api.check(ev.letter, ev.pop, ev.co); roomKinetic("", "lotto", "인기도 " + ev.pop); }
         duo.insertAdjacentHTML("beforeend", `<div class="duo-note">로또가 후보 ${ev.letter}를 검사했어요 · 인기도 ${ev.pop} · 1등 동반 약 ${ev.co}명 · 알려진 인기 모양: ${esc(ev.pattern)}</div>`);
       } else if (ev.type === "research") {
         duo.insertAdjacentHTML("beforeend", `<div class="duo-note">로또가 조사 자료를 찾아봤어요 · ${ev.titles.map(esc).join(", ")}</div>`);
       } else if (ev.type === "picks") {
         card = ev.card; chatMood("wink");
+        if (Room.open) { Room.api.picks(ev.picks.map((p) => p.letter)); roomKinetic("", "lotto", "최종 " + ev.picks.map((p) => p.letter).join(" · ") + "!"); Object.keys(WHO_LABEL).forEach((k) => Room.api.gesture(k, "cheer")); }
       } else if (ev.type === "error") { err = ev.message || "알 수 없는 오류"; }
     }
     Roam.talking = false; Pet.roam && Pet.roam.talk(false); Pet.girl && Pet.girl.talk(false); Pet.kkom && Pet.kkom.talk(false);

@@ -396,7 +396,7 @@ function mountRoom(el, opts) {
   renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
   const canvas = renderer.domElement; canvas.className = "lotto3d-canvas"; canvas.style.pointerEvents = "none"; el.appendChild(canvas);
   const scene = new THREE.Scene(); addLights(scene);
-  const cam = new THREE.PerspectiveCamera(34, 1, 0.1, 60); cam.position.set(0, 4.6, 7.2); cam.lookAt(0, 0.95, -0.7);
+  const cam = new THREE.PerspectiveCamera(40, 1, 0.1, 60); cam.position.set(0, 4.9, 8.6); cam.lookAt(0, 1.45, -0.6);
   const mat = (c, r) => new THREE.MeshStandardMaterial({ color: c, roughness: r == null ? 0.6 : r });
   // 바닥(둥근 러그) + 탁자
   const rug = new THREE.Mesh(new THREE.CircleGeometry(3.7, 64), mat(0xf3f6ff, 0.95)); rug.rotation.x = -Math.PI / 2; rug.position.y = 0.005; scene.add(rug);
@@ -420,6 +420,46 @@ function mountRoom(el, opts) {
     ch.fixedYaw = yaw; ch.userYaw = yaw; ch.sit(true); scene.add(ch.group); chars[name] = ch; spots[name] = { x, z, yaw };
     const ring = new THREE.Mesh(new THREE.RingGeometry(0.75, 0.92, 40), new THREE.MeshBasicMaterial({ color: 0xffc400, transparent: true, opacity: 0 })); ring.rotation.x = -Math.PI / 2; ring.position.set(x, 0.02, z); scene.add(ring); spots[name].ring = ring;
   }
+  // ---- 탁자 위 공중 화면: 후보·검사 결과·최종 선택을 글자판(캔버스 그림)으로 띄운다
+  const BW = 920, BH = 520, bc = document.createElement("canvas"); bc.width = BW; bc.height = BH;
+  const bctx = bc.getContext("2d"), btex = new THREE.CanvasTexture(bc); btex.colorSpace = THREE.SRGBColorSpace; btex.anisotropy = 4;
+  const boardMesh = new THREE.Mesh(new THREE.PlaneGeometry(3.3, 3.3 * BH / BW), new THREE.MeshBasicMaterial({ map: btex, transparent: true, depthWrite: false, opacity: 0.97 }));
+  boardMesh.position.set(0, 2.6, -0.55); boardMesh.rotation.x = -0.18; boardMesh.scale.setScalar(0.001); boardMesh.visible = false; scene.add(boardMesh);
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.95, 1.5, 32, 1, true), new THREE.MeshBasicMaterial({ color: 0x6fd3ff, transparent: true, opacity: 0.0, depthWrite: false, side: THREE.DoubleSide }));
+  beam.position.set(0, 1.9, -0.3); scene.add(beam);
+  const BS = { cands: [], title: "", note: "", show: false, t: 9, flash: "" };
+  const ballColor = (n) => (n <= 10 ? "#f5b800" : n <= 20 ? "#3b8fe0" : n <= 30 ? "#e0483f" : n <= 40 ? "#8a93a5" : "#3fae5a");
+  const rr = (g, x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
+  const drawBoard = () => {
+    const g = bctx; g.clearRect(0, 0, BW, BH);
+    g.fillStyle = "rgba(14,24,52,0.88)"; rr(g, 6, 6, BW - 12, BH - 12, 34); g.fill();
+    g.lineWidth = 5; g.strokeStyle = "rgba(111,211,255,0.9)"; rr(g, 6, 6, BW - 12, BH - 12, 34); g.stroke();
+    g.fillStyle = "#9fe3ff"; g.font = "700 34px 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif"; g.textBaseline = "middle"; g.textAlign = "left";
+    g.fillText(BS.title || "회의 자료", 40, 52);
+    g.font = "500 24px 'Malgun Gothic', sans-serif"; g.fillStyle = "rgba(200,225,255,0.85)"; g.textAlign = "right"; g.fillText(BS.note || "당첨 확률은 모두 1/8,145,060", BW - 40, 52);
+    const rows = BS.cands.slice(0, 8), rh = Math.min(54, (BH - 120) / Math.max(1, rows.length));
+    rows.forEach((c, i) => {
+      const y = 92 + i * rh + rh / 2;
+      if (c.picked || c.checked) { g.fillStyle = c.picked ? "rgba(255,214,64,0.22)" : "rgba(111,211,255,0.14)"; rr(g, 24, y - rh / 2 + 2, BW - 48, rh - 4, 18); g.fill(); }
+      if (c.letter === BS.flash) { g.strokeStyle = "rgba(255,255,255,0.9)"; g.lineWidth = 3; rr(g, 24, y - rh / 2 + 2, BW - 48, rh - 4, 18); g.stroke(); }
+      g.beginPath(); g.arc(62, y, 19, 0, 7); g.fillStyle = c.picked ? "#ffc400" : "#334a85"; g.fill();
+      g.fillStyle = c.picked ? "#3a2a00" : "#fff"; g.font = "800 24px sans-serif"; g.textAlign = "center"; g.fillText(c.letter, 62, y + 1);
+      c.nums.forEach((n, k) => { const x = 128 + k * 52; g.beginPath(); g.arc(x, y, 20, 0, 7); g.fillStyle = ballColor(n); g.fill(); g.fillStyle = "#fff"; g.font = "800 21px sans-serif"; g.fillText(String(n), x, y + 1); });
+      g.textAlign = "left"; g.font = "600 24px 'Malgun Gothic', sans-serif";
+      if (c.pop != null) {                  // 인기도(1.0 이 평균, 낮을수록 좋음): 막대 + 숫자
+        const bx = 470, bw = 170, v = Math.min(1.6, c.pop) / 1.6;
+        g.fillStyle = "rgba(255,255,255,0.14)"; rr(g, bx, y - 7, bw, 14, 7); g.fill();
+        g.fillStyle = c.pop < 0.95 ? "#4be08a" : c.pop > 1.05 ? "#ff7a6b" : "#ffd24a"; rr(g, bx, y - 7, Math.max(10, bw * v), 14, 7); g.fill();
+        g.fillStyle = "#e8f3ff"; g.fillText(c.pop.toFixed(2), bx + bw + 14, y + 1);
+      } else { g.fillStyle = "rgba(200,225,255,0.5)"; g.fillText("검사 전", 470, y + 1); }
+      if (c.co != null) { g.fillStyle = "rgba(200,225,255,0.9)"; g.font = "500 22px 'Malgun Gothic', sans-serif"; g.fillText("동반 약 " + c.co + "명", 725, y + 1); }
+      if (c.picked) { g.fillStyle = "#ffd24a"; g.font = "800 30px sans-serif"; g.textAlign = "right"; g.fillText("★", BW - 40, y + 1); }
+    });
+    g.textAlign = "left"; g.fillStyle = "rgba(160,200,240,0.7)"; g.font = "500 20px 'Malgun Gothic', sans-serif"; g.textBaseline = "alphabetic";
+    g.fillText("인기도 1.0 = 평균 · 낮을수록 1등 시 나눠 가질 사람이 적음(확률은 같음)", 40, BH - 22);
+    btex.needsUpdate = true;
+  };
+  const boardPop = () => { BS.t = 0; };
   let w = 0, h = 0, last = 0, running = false, speaker = null;
   const size = () => { const nw = el.clientWidth || 300, nh = el.clientHeight || 200; if (nw === w && nh === h) return; w = nw; h = nh; renderer.setSize(w, h, false); canvas.style.width = "100%"; canvas.style.height = "100%"; cam.aspect = w / h; cam.updateProjectionMatrix(); };
   const visible = () => el.isConnected && el.offsetParent !== null && !document.hidden;
@@ -427,6 +467,11 @@ function mountRoom(el, opts) {
     if (!visible()) { running = false; last = 0; setTimeout(kick, 400); return; }
     size();
     const dt = last ? Math.min(0.05, (ts - last) / 1000) : 0; last = ts;
+    if (BS.show) {                              // 공중 화면: 팝(튕기며 커짐) + 둥실 + 빛기둥
+      BS.t += dt; const k = Math.min(1, BS.t / 0.45), pop = k < 1 ? 1 - Math.pow(1 - k, 3) * Math.cos(k * 9) * (1 - k * 0.3) : 1;
+      boardMesh.visible = true; boardMesh.scale.setScalar(Math.max(0.001, 0.82 + 0.18 * pop)); boardMesh.position.y = 2.6 + Math.sin(performance.now() / 700) * 0.04;
+      beam.material.opacity += ((BS.t < 0.8 ? 0.22 : 0.09) - beam.material.opacity) * (1 - Math.exp(-6 * dt));
+    } else { boardMesh.visible = false; beam.material.opacity = 0; }
     for (const [n, c] of Object.entries(chars)) { c.update(dt); const r = spots[n].ring; r.material.opacity += (((speaker === n) ? 0.85 : 0) - r.material.opacity) * (1 - Math.exp(-8 * dt)); }
     renderer.render(scene, cam); requestAnimationFrame(loop);
   };
@@ -448,6 +493,11 @@ function mountRoom(el, opts) {
       for (const k of Object.keys(chars)) { chars[k].setTalking(on && k === n); if (on && k !== n) turnTo(k, n); if (!on || k === n) chars[k].fixedYaw = spots[k].yaw; }
     },
     sit(on) { Object.values(chars).forEach((c) => c.sit(on)); },
+    /** 공중 화면: 후보 목록 { items:[{letter,nums,pop,co}], added } — 새 후보가 오면 목록에 이어 붙인다 */
+    setCands(items, added) { BS.cands = (added ? BS.cands : []).concat(items.map((c) => ({ letter: c.letter, nums: c.nums, pop: null, co: null, checked: false, picked: false }))); BS.title = "코드가 뽑은 후보"; BS.show = true; drawBoard(); boardPop(); },
+    check(letter, pop, co) { const c = BS.cands.find((x) => x.letter === letter); if (!c) return; c.pop = pop; c.co = co; c.checked = true; BS.title = "후보 " + letter + " 검사"; BS.flash = letter; drawBoard(); boardPop(); setTimeout(() => { BS.flash = ""; drawBoard(); }, 1400); },
+    picks(letters) { BS.cands.forEach((c) => { c.picked = letters.includes(c.letter); }); BS.title = "최종 선택 ★"; BS.show = true; drawBoard(); boardPop(); },
+    hideBoard() { BS.show = false; },
     destroy() { running = false; renderer.dispose(); canvas.remove(); },
   };
 }

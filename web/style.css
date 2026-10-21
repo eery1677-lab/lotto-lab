@@ -573,3 +573,18 @@ body.in-room .lotto-roam { display: none !important; }
   body.in-room.ai-mode .chat-log, body.in-room.ai-mode .chat-dock { margin-right: calc(min(480px, 40vw) + 28px); }
 }
 @media (min-width: 901px) and (max-width: 1249px) { .meeting-room { width: min(360px, 44vw); } .mr-scene { height: 230px; } }
+
+/* 회의 중 핵심 말이 튀어나오는 글자(모션그래픽) */
+.mr-scene { position: relative; }
+.mr-kin { position: absolute; inset: 0; z-index: 3; pointer-events: none; overflow: hidden; }
+.kin { position: absolute; font-weight: 900; font-size: 26px; letter-spacing: -.02em; padding: 5px 14px; border-radius: 14px; white-space: nowrap; color: #fff; text-shadow: 0 2px 0 rgba(0, 0, 0, .25); box-shadow: 0 8px 22px rgba(0, 0, 0, .28); transform-origin: 50% 70%; animation: kin-pop 2.3s cubic-bezier(.2, .9, .3, 1) forwards; }
+.kin.lotto { background: linear-gradient(135deg, #f5b800, #ff8a00); } .kin.ppoddo { background: linear-gradient(135deg, #ff5c9d, #ff8fb8); } .kin.kkom { background: linear-gradient(135deg, #12a88a, #2fd0a6); } .kin.final { background: linear-gradient(135deg, #7c3aed, #4f46e5); font-size: 32px; }
+@keyframes kin-pop {
+  0% { transform: scale(.15) rotate(-14deg); opacity: 0; }
+  12% { transform: scale(1.28) rotate(4deg); opacity: 1; }
+  22% { transform: scale(.95) rotate(-2deg); }
+  32% { transform: scale(1) rotate(0); }
+  78% { transform: scale(1) translateY(-8px); opacity: 1; }
+  100% { transform: scale(.7) translateY(-34px) rotate(3deg); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .kin { animation: kin-fade 2.3s linear forwards; } @keyframes kin-fade { 0%, 80% { opacity: 1; } 100% { opacity: 0; } } }
