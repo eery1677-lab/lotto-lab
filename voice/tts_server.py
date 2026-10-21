@@ -51,15 +51,28 @@ def model(kind):
     if kind in STATE["models"]:
         return STATE["models"][kind]
     import torch
-    from qwen_tts import Qwen3TTSModel
     name = BASE_MODEL if kind == "base" else CUSTOM_MODEL
     d = device()
     STATE["loading"] = name
     t0 = time.time()
-    m = Qwen3TTSModel.from_pretrained(name, device_map=d, dtype=torch.float32 if d == "cpu" else torch.bfloat16)
+    m = None
+    if d == "cuda" and os.environ.get("LOTTO_TTS_FAST", "1") != "0":
+        try:      # CUDA 그래프로 묶은 빠른 판(faster-qwen3-tts): 이 PC(RTX 3060)에서 말하는 속도의 약 2배로 만든다
+            from faster_qwen3_tts import FasterQwen3TTS
+            m = FasterQwen3TTS.from_pretrained(name, device="cuda", dtype=torch.bfloat16)
+            STATE.setdefault("fast", {})[kind] = True
+            if kind == "custom":      # 첫 요청이 느리지 않게 그래프를 미리 만들어 둔다
+                m.generate_custom_voice(text="안녕하세요.", speaker="sohee", language="Korean")
+        except Exception as e:
+            print("빠른 판을 못 써서 기본 판으로:", repr(e)[:200], flush=True)
+            m = None
+            STATE.setdefault("fast", {})[kind] = False
+    if m is None:
+        from qwen_tts import Qwen3TTSModel
+        m = Qwen3TTSModel.from_pretrained(name, device_map=d, dtype=torch.float32 if d == "cpu" else torch.bfloat16)
     STATE["models"][kind] = m
     STATE["loading"] = ""
-    print(f"모델 올림 {name} ({d}) {time.time() - t0:.1f}s", flush=True)
+    print(f"모델 올림 {name} ({d}, {'빠른 판' if STATE.get('fast', {}).get(kind) else '기본 판'}) {time.time() - t0:.1f}s", flush=True)
     return m
 
 
@@ -92,14 +105,18 @@ def synth(text, voice):
         wav = sample_wav(cfg["sample"]) if cfg.get("sample") else None
         if wav:                                           # 복제(Base)
             m = model("base")
-            pk = ("base", wav, cfg.get("sample_text") or "")
-            if pk not in STATE["prompts"]:
-                STATE["prompts"][pk] = m.create_voice_clone_prompt(ref_audio=wav, ref_text=cfg.get("sample_text") or None,
-                                                                  x_vector_only_mode=not cfg.get("sample_text"))
-            wavs, sr = m.generate_voice_clone(text=text, language="Korean", voice_clone_prompt=STATE["prompts"][pk])
+            if STATE.get("fast", {}).get("base"):
+                wavs, sr = m.generate_voice_clone(text=text, language="Korean", ref_audio=wav, ref_text=cfg.get("sample_text") or "",
+                                                  xvec_only=not cfg.get("sample_text"))
+            else:
+                pk = ("base", wav, cfg.get("sample_text") or "")
+                if pk not in STATE["prompts"]:
+                    STATE["prompts"][pk] = m.create_voice_clone_prompt(ref_audio=wav, ref_text=cfg.get("sample_text") or None,
+                                                                      x_vector_only_mode=not cfg.get("sample_text"))
+                wavs, sr = m.generate_voice_clone(text=text, language="Korean", voice_clone_prompt=STATE["prompts"][pk])
         else:                                             # 정해진 목소리(CustomVoice) + 말투 지시
             m = model("custom")
-            wavs, sr = m.generate_custom_voice(text=text, language="Korean", speaker=cfg.get("speaker", "Sohee"),
+            wavs, sr = m.generate_custom_voice(text=text, language="Korean", speaker=str(cfg.get("speaker", "sohee")).lower(),
                                                instruct=cfg.get("style") or None)
         buf = io.BytesIO()
         sf.write(buf, np.asarray(wavs[0], dtype="float32"), sr, format="WAV", subtype="PCM_16")

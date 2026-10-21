@@ -99,7 +99,7 @@
       $(".vr-spk", row).addEventListener("change", save);
       $(".vr-style", row).addEventListener("change", save);
       $(".vr-play", row).addEventListener("click", async (e) => {
-        const b = e.currentTarget; b.disabled = true; state.textContent = "목소리를 만드는 중이에요… (이 PC 는 CPU 로 만들어서 1분 가까이 걸릴 수 있어요)";
+        const b = e.currentTarget; b.disabled = true; state.textContent = "목소리를 만드는 중이에요… (처음 한 번은 모델을 올리느라 20~30초, 그다음은 몇 초예요)";
         try {
           await save();
           const line = { lotto: "안녕하세요, 대장님. 저는 로또예요.", ppoddo: "대장님, 안녕하세요! 저는 뽀또예요.", kkom: "안녕하세요, 대장님. 검산 담당 꼼꼼이입니다." }[who] || "안녕하세요, 대장님.";
@@ -1302,7 +1302,7 @@
     $("#marquee-on").checked = on; if (mq) mq.hidden = !on; buildMarquee();
     $("#marquee-on").addEventListener("change", (e) => { store.set("marquee", e.target.checked ? "1" : "0"); if (mq) mq.hidden = !e.target.checked; }); }
   // ---- 답변 읽어 주기 켜고 끄기
-  const TTS_HINT = { 1: "이 기기에 들어 있는 한국어 목소리예요. 글이 밖으로 나가지 않아요.", 2: "자연스럽지만 읽을 글이 마이크로소프트 서버로 가요.", 3: "이 PC에서 AI 로 만든 캐릭터별 목소리예요. 글이 밖으로 나가지 않아요(PC 가 느리면 몇십 초 걸려요)." };
+  const TTS_HINT = { 1: "이 기기에 들어 있는 한국어 목소리예요. 글이 밖으로 나가지 않아요.", 2: "자연스럽지만 읽을 글이 마이크로소프트 서버로 가요.", 3: "이 PC에서 AI 로 만든 캐릭터별 목소리예요. 글이 밖으로 나가지 않아요(문장마다 몇 초 걸려요)." };
   const ttsMethod = () => { const m = Number(store.get("tts_method", "3")); return m === 2 ? 2 : 3; };   // 마지막으로 고른 방식(처음엔 로컬 AI 목소리) — 기기 목소리는 더 이상 고르지 않는다
   function syncTtsUi() {
     const on = $("#tts-on"), sel = $("#tts-select"), hint = $("#tts-hint"), m = Voice.on ? Voice.mode : ttsMethod();
