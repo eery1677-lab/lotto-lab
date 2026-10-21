@@ -1298,6 +1298,7 @@
   Kkom.on = store.get("kkom", "1") === "1"; $("#kkom-btn").checked = Kkom.on;
   Roam.snd = store.get("snd", "1") === "1"; $("#snd-btn").checked = Roam.snd;
   $("#roam-btn").addEventListener("change", (e) => setRoam(e.target.checked));
+  { const sp = $("#mtg-speed"); if (sp) { sp.value = store.get("mtg_speed", "fast"); sp.addEventListener("change", () => store.set("mtg_speed", sp.value)); } }
   { const on = store.get("marquee", "1") === "1", mq = $("#marquee");
     $("#marquee-on").checked = on; if (mq) mq.hidden = !on; buildMarquee();
     $("#marquee-on").addEventListener("change", (e) => { store.set("marquee", e.target.checked ? "1" : "0"); if (mq) mq.hidden = !e.target.checked; }); }
@@ -1349,12 +1350,15 @@
   }
 
   // ---------------------------------------------------------------- 로또 ↔ 뽀또 대화 (사실은 코드, 말투는 AI — /api/duo)
+  // 회의 줄 하나를 보여 주는 시간(소리가 없을 때 글 속도). 설정 → 회의 속도(빠르게·보통·느리게)
+  const MTG_SPEED = { fast: [1100, 48], normal: [2000, 80], slow: [3000, 110] };
+  const lineMs = (text, spoken) => { const [mn, per] = MTG_SPEED[store.get("mtg_speed", "fast")] || MTG_SPEED.fast; return Math.max(spoken ? mn * 0.8 : mn, text.length * per); };
   const plainSpeech = (t) => t.replace(/\p{Extended_Pictographic}/gu, " ").replace(/\s+/g, " ").trim();
   // 회의 한 줄 읽기. audioP = 미리 만들어 둔 소리(줄이 도착하자마자 만들기 시작). 소리가 8초 안에 안 오면 소리 없이 글 속도로 넘어가서 대화가 멈추지 않게 한다.
   function duoVoice(text, who, my, pet, audioP) {
     return new Promise((done) => {
       const fin = () => { if (pet) pet.talk(false); done(); };
-      const wait = Math.max(2400, text.length * 95);
+      const wait = lineMs(text, true);
       const plain = plainSpeech(text);
       if (Voice.on && Voice.mode === 3) {
         const limit = new Promise((ok) => setTimeout(() => ok(null), 8000));
@@ -1392,7 +1396,7 @@
       if (my !== Voice.q) break;
       const l = j.lines[i], isL = l.who === "lotto", pet = isL ? (showLotto ? Pet.roam : null) : (showGirl ? Pet.girl : null);
       rows[i].hidden = false; $("#chat-log").scrollTop = 1e9;
-      const ms = Math.max(3200, l.text.length * 110);
+      const ms = lineMs(l.text);
       if (isL) { if (showLotto) roamSay(l.text, ms); } else if (showGirl) { girlSay(l.text, ms, true); girlMood(/[?？]|…/.test(l.text) ? "think" : "happy", 1800); }
       await duoVoice(l.text, l.who, my, pet);
     }
@@ -1450,13 +1454,13 @@
       const ev = q.shift();
       if (ev.type === "__end" || ctrl.signal.aborted || my !== Voice.q) break;
       if (ev.type === "line") {
-        if (!gathered) { const t0 = Date.now(); while (!gatherReady() && Date.now() - t0 < 5000) await new Promise((r) => setTimeout(r, 150)); gathered = true; }
+        if (!gathered) { const t0 = Date.now(); while (!gatherReady() && Date.now() - t0 < 3500) await new Promise((r) => setTimeout(r, 100)); gathered = true; }
         gotLine = true;
         const isL = ev.who === "lotto", isK = ev.who === "kkom", nm = isL ? "로또" : isK ? "꼼꼼이" : "뽀또";
         const pet = isL ? (showLotto ? Pet.roam : null) : isK ? (showKkom ? Pet.kkom : null) : (showGirl ? Pet.girl : null);
         duo.insertAdjacentHTML("beforeend", `<div class="duo-line ${ev.who}"><b>${nm}</b><span>${esc(ev.text)}</span></div>`);
         $("#chat-log").scrollTop = 1e9;
-        const ms = Math.max(3000, ev.text.length * 105);
+        const ms = lineMs(ev.text);
         if (isL) { if (showLotto) roamSay(ev.text, ms); }
         else if (isK) { if (showKkom) { kkomSay(ev.text, ms, true); kkomMood("firm", 1800); } }
         else if (showGirl) { girlSay(ev.text, ms, true); girlMood(/[?？]|…/.test(ev.text) ? "think" : "happy", 1800); }
