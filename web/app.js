@@ -969,6 +969,16 @@
     kkom: { name: "꼼꼼이", sub: "검산 담당", snaps: () => Pet.snapsKkom || Pet.snaps, pitch: 1.2 },
   };
   const whoOf = (w) => WHO[w] ? w : "lotto";
+  // ---- 위쪽 카드 띠(전광판): 같은 카드 묶음을 두 번 이어 붙여 끊김 없이 -50% 만큼 흘린다
+  function buildMarquee() {
+    const track = $("#marquee-track"); if (!track) return;
+    const set = [["lotto", "happy", "공 박사"], ["ppoddo", "wink", "로또의 여자친구"], ["kkom", "normal", "검산 담당"]];
+    const card = ([who, mood, sub]) => `<div class="mq-card ${who}"><span class="mq-av">${avatarImg(mood, who)}</span><span class="mq-txt"><b>로또 확률 연구소</b><span>${WHO[who].name} · ${sub}</span></span></div>`;
+    const half = Array.from({ length: 3 }, () => set.map(card).join("")).join("");           // 한쪽 9장(약 2,300px)
+    track.innerHTML = half + half;
+    const w = track.scrollWidth / 2 || 2300;
+    track.style.setProperty("--mq-dur", Math.round(w / 55) + "s");                          // 초당 약 55px
+  }
   function avatarImg(mood, who) { const sn = WHO[whoOf(who)].snaps(); return sn ? `<img alt="${WHO[whoOf(who)].name}" src="${sn[mood] || sn.normal}">` : "🎱"; }
   function avatar(mood, who) { return `<span class="av" data-mood="${mood}" data-who="${whoOf(who)}">${avatarImg(mood, who)}</span>`; }
   function paintAvatars() {
@@ -999,6 +1009,7 @@
     if (!window.Lotto3D.ok) return;            // 3D 를 못 쓰는 기기: 이모지 아바타로 대체
     try { Pet.snaps = window.Lotto3D.snapshots(180, 0.22, null, "bust"); } catch (e) { Pet.snaps = null; }
     try { Pet.snapsGirl = window.Lotto3D.snapshots(180, 0.22, null, "bust", "girl"); Pet.snapsKkom = window.Lotto3D.snapshots(180, 0.22, null, "bust", "kkom"); } catch (e) { /* 로또 사진으로 대신 */ }
+    buildMarquee();
     paintAvatars();
     try {
       const tap = (p) => () => { if (!p()) return; Math.random() < 0.5 ? p().hop() : p().wave(); };
@@ -1287,6 +1298,9 @@
   Kkom.on = store.get("kkom", "1") === "1"; $("#kkom-btn").checked = Kkom.on;
   Roam.snd = store.get("snd", "1") === "1"; $("#snd-btn").checked = Roam.snd;
   $("#roam-btn").addEventListener("change", (e) => setRoam(e.target.checked));
+  { const on = store.get("marquee", "1") === "1", mq = $("#marquee");
+    $("#marquee-on").checked = on; if (mq) mq.hidden = !on; buildMarquee();
+    $("#marquee-on").addEventListener("change", (e) => { store.set("marquee", e.target.checked ? "1" : "0"); if (mq) mq.hidden = !e.target.checked; }); }
   // ---- 답변 읽어 주기 켜고 끄기
   const TTS_HINT = { 1: "이 기기에 들어 있는 한국어 목소리예요. 글이 밖으로 나가지 않아요.", 2: "자연스럽지만 읽을 글이 마이크로소프트 서버로 가요.", 3: "이 PC에서 AI 로 만든 캐릭터별 목소리예요. 글이 밖으로 나가지 않아요(PC 가 느리면 몇십 초 걸려요)." };
   const ttsMethod = () => { const m = Number(store.get("tts_method", "3")); return m === 2 ? 2 : 3; };   // 마지막으로 고른 방식(처음엔 로컬 AI 목소리) — 기기 목소리는 더 이상 고르지 않는다

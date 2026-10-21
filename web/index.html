@@ -8,7 +8,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#f5b800">
 <link rel="apple-touch-icon" href="icon-180.png">
-<link rel="stylesheet" href="style.css?v=35">
+<link rel="stylesheet" href="style.css?v=36">
 </head>
 <body>
 <div class="app">
@@ -31,6 +31,7 @@
   </nav>
 
   <main>
+    <div class="marquee" id="marquee" aria-hidden="true"><div class="marquee-track" id="marquee-track"></div></div>
     <!-- 요약 -->
     <section class="view active" id="view-home">
       <h1 class="sr-only">요약</h1>
@@ -356,6 +357,8 @@
           <label class="switch"><input type="checkbox" id="girl-btn"><i></i></label></div>
         <div class="set-row"><div class="set-txt"><b>꼼꼼이(검산 담당)와 함께</b><span>숫자와 예산을 다시 확인하는 회계사 캐릭터예요. 회의에도 나와요.</span></div>
           <label class="switch"><input type="checkbox" id="kkom-btn"><i></i></label></div>
+        <div class="set-row"><div class="set-txt"><b>위쪽 카드 띠</b><span>캐릭터 카드가 오른쪽에서 왼쪽으로 흘러가는 띠예요. AI 상담 화면에서는 대화 공간을 위해 숨겨요.</span></div>
+          <label class="switch"><input type="checkbox" id="marquee-on"><i></i></label></div>
         <div class="set-row"><div class="set-txt"><b>통통 소리</b><span>뛸 때 나는 작은 효과음이에요.</span></div>
           <label class="switch"><input type="checkbox" id="snd-btn"><i></i></label></div>
       </div>
@@ -408,7 +411,7 @@
 </div>
 <script src="vendor/qrcode.min.js"></script>
 <script src="machine.js?v=8"></script>
-<script src="app.js?v=53"></script>
+<script src="app.js?v=54"></script>
 <script type="module" src="lotto3d.js?v=18"></script>
 </body>
 </html>
