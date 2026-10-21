@@ -659,7 +659,7 @@
       chatMood("happy"); lottoSay("안녕하세요, 대장님! 궁금한 걸 물어보세요.");
       showWelcomeChips();
     } else {
-      chat.history.forEach((m) => addMsg(m.role === "user" ? "user" : "bot", m.content, m.cards, m.mood));
+      chat.history.forEach((m) => addMsg(m.role === "user" ? "user" : "bot", m.content, m.cards, m.mood, m.who));
     }
   }
   $("#lms-refresh").addEventListener("click", () => { store.set("lms_base", lmsBase()); loadModels(); });
@@ -911,7 +911,8 @@
     if (!Voice.on || Voice.mode !== 3 || Voice.audio) return;
     ttsFetch(text, voiceId).then((blob) => { if (Voice.audio) return; const my = Voice.q; return playBlob(blob, my, () => pet && pet.talk(true), () => { pet && pet.talk(false); Voice.audio = null; }); }).catch(() => {});
   }
-  function speakAnswer(text) {
+  function speakAnswer(text, who) {
+    who = whoOf(who);
     if (!Voice.on) return;
     const v = Voice.mode === 3 ? pickVoice(1) : (Voice.voice || (Voice.voice = pickVoice()));
     if (!v && Voice.mode !== 3) return;
@@ -920,23 +921,31 @@
     const parts = (clean.slice(0, 700).match(/[^.!?。\n]+[.!?。]?/g) || [clean]).map((s) => s.trim()).filter(Boolean);
     const my = ++Voice.q; let i = 0;
     if (Voice.mode === 3) {
-      speakRemote(parts, my, "lotto").catch(() => { if (my !== Voice.q || !v) return; Voice.fail = (Voice.fail || 0) + 1; speakLocalFallback(parts, my, v); });
+      speakRemote(parts, my, who).catch(() => { if (my !== Voice.q || !v) return; Voice.fail = (Voice.fail || 0) + 1; speakLocalFallback(parts, my, v); });
       return;
     }
     const next = () => {
       if (my !== Voice.q) return;
-      if (i >= parts.length) { chatTalk(false); return; }
-      const u = new SpeechSynthesisUtterance(parts[i++]); u.voice = v; u.lang = v.lang; u.rate = 1.12; u.pitch = 1.55;
-      u.onstart = () => { if (my === Voice.q) chatTalk(true); };
-      u.onend = next; u.onerror = () => { if (my === Voice.q) chatTalk(false); };
+      if (i >= parts.length) { talkAs(who, false); return; }
+      const u = new SpeechSynthesisUtterance(parts[i++]); u.voice = v; u.lang = v.lang; u.rate = 1.12; u.pitch = WHO[who].pitch;
+      u.onstart = () => { if (my === Voice.q) talkAs(who, true); };
+      u.onend = next; u.onerror = () => { if (my === Voice.q) talkAs(who, false); };
       speechSynthesis.speak(u);
     };
     next();
   }
-  function avatar(mood) { return `<span class="av" data-mood="${mood}">${Pet.snaps ? `<img alt="로또" src="${Pet.snaps[mood] || Pet.snaps.normal}">` : "🎱"}</span>`; }
+  // 채팅에서 말하는 캐릭터: 이름·부제·아바타 사진·목소리·기기 목소리 높이
+  const WHO = {
+    lotto: { name: "로또", sub: "공 박사", snaps: () => Pet.snaps, pitch: 1.55 },
+    ppoddo: { name: "뽀또", sub: "로또의 여자친구", snaps: () => Pet.snapsGirl || Pet.snaps, pitch: 1.85 },
+    kkom: { name: "꼼꼼이", sub: "검산 담당", snaps: () => Pet.snapsKkom || Pet.snaps, pitch: 1.2 },
+  };
+  const whoOf = (w) => WHO[w] ? w : "lotto";
+  function avatarImg(mood, who) { const sn = WHO[whoOf(who)].snaps(); return sn ? `<img alt="${WHO[whoOf(who)].name}" src="${sn[mood] || sn.normal}">` : "🎱"; }
+  function avatar(mood, who) { return `<span class="av" data-mood="${mood}" data-who="${whoOf(who)}">${avatarImg(mood, who)}</span>`; }
   function paintAvatars() {
     if (!Pet.snaps) return;
-    $$(".av").forEach((a) => { a.innerHTML = `<img alt="로또" src="${Pet.snaps[a.dataset.mood] || Pet.snaps.normal}">`; });
+    $$(".av").forEach((a) => { a.innerHTML = avatarImg(a.dataset.mood, a.dataset.who); });
   }
   function setAvatarMood(el, mood) { const a = $(".av", el); if (a) { a.dataset.mood = mood; paintAvatars(); if (!Pet.snaps) a.textContent = "🎱"; } }
   // 답에 어울리는 표정(코드가 정함)
@@ -961,6 +970,7 @@
     Pet.tried = true;
     if (!window.Lotto3D.ok) return;            // 3D 를 못 쓰는 기기: 이모지 아바타로 대체
     try { Pet.snaps = window.Lotto3D.snapshots(180, 0.22, null, "bust"); } catch (e) { Pet.snaps = null; }
+    try { Pet.snapsGirl = window.Lotto3D.snapshots(180, 0.22, null, "bust", "girl"); Pet.snapsKkom = window.Lotto3D.snapshots(180, 0.22, null, "bust", "kkom"); } catch (e) { /* 로또 사진으로 대신 */ }
     paintAvatars();
     try {
       const tap = (p) => () => { if (!p()) return; Math.random() < 0.5 ? p().hop() : p().wave(); };
@@ -1102,13 +1112,20 @@
     for (const k of ["lotto", "girl", "kkom"]) stepWalker(k, dt, ts);
   }
   // 로또를 클릭하면 말 걸기 입력줄이 열린다 → 질문은 AI 상담과 같은 길로 가고, 답은 말풍선에 실시간으로 나온다
-  function openAsk(on) {
-    const f = $("#roam-ask"); f.hidden = !on; Roam.ask = on;
-    if (on) { roamSay("네, 대장님! 무엇이 궁금하세요?", 5000); setTimeout(() => $("#roam-q").focus(), 30); } else $("#roam-q").blur();
+  function openAsk(on, who) {
+    who = whoOf(who); const f = $("#roam-ask"); f.hidden = !on; Roam.ask = on;
+    if (on) {
+      Roam.askWho = who;
+      const top = $(who === "ppoddo" ? "#roam2-top" : who === "kkom" ? "#roam3-top" : "#roam-top"); if (f.parentElement !== top) top.appendChild(f);
+      $("#roam-q").placeholder = `${WHO[who].name}에게 말 걸기…`;
+      const hi = { lotto: "네, 대장님! 무엇이 궁금하세요?", ppoddo: "네, 대장님~ 뭐든 물어보세요!", kkom: "네, 대장님. 무엇을 확인해 드릴까요?" }[who];
+      if (who === "lotto") roamSay(hi, 5000); else if (who === "ppoddo") girlSay(hi, 5000, true); else kkomSay(hi, 5000, true);
+      setTimeout(() => $("#roam-q").focus(), 30);
+    } else $("#roam-q").blur();
   }
   $("#roam-ask").addEventListener("submit", (e) => {
     e.preventDefault(); const q = $("#roam-q").value.trim(); if (!q) return;
-    $("#roam-q").value = ""; openAsk(false); send(q);
+    $("#roam-q").value = ""; const w = Roam.askWho; openAsk(false); send(q, w);
   });
   $("#roam-q").addEventListener("keydown", (e) => { if (e.key === "Escape") openAsk(false); });
   // ---- 뽀또: 로또의 여자친구. 로또 곁을 따라다니고(멀면 뛰어서, 가까우면 아장아장) 가끔 말을 건다
@@ -1134,7 +1151,7 @@
     const el = $("#lotto-roam2"); el.hidden = !(on && Roam.on);
     if (el.hidden) { Pet.girl && Pet.girl.walk(false); return; }
     if (!Pet.girl && window.Lotto3D && window.Lotto3D.ok) {
-      Pet.girl = window.Lotto3D.mount($("#roam2-body"), { variant: "girl", onTap: () => { if (!Pet.girl) return; Math.random() < 0.5 ? Pet.girl.hop() : Pet.girl.wave(); girlSay(["안녕하세요, 대장님~!", "저 뽀또예요, 헤헤.", "로또랑 친하게 지내요!"][Math.floor(Math.random() * 3)]); } });
+      Pet.girl = window.Lotto3D.mount($("#roam2-body"), { variant: "girl", onTap: () => { if (!Pet.girl) return; Math.random() < 0.5 ? Pet.girl.hop() : Pet.girl.wave(); popSound(Girl.x, true); openAsk(!$("#roam-ask").hidden && Roam.askWho === "ppoddo" ? false : true, "ppoddo"); } });
     }
     if (!Pet.girl) { el.hidden = true; return; }
     Pet.girl.onStep(() => { if (wstate(Girl).mode === "waddle" || Gather.on) popSound(Girl.x, true); });
@@ -1165,7 +1182,7 @@
     const el = $("#lotto-roam3"); el.hidden = !(on && Roam.on);
     if (el.hidden) { Pet.kkom && Pet.kkom.walk(false); return; }
     if (!Pet.kkom && window.Lotto3D && window.Lotto3D.ok) {
-      Pet.kkom = window.Lotto3D.mount($("#roam3-body"), { variant: "kkom", onTap: () => { if (!Pet.kkom) return; Math.random() < 0.5 ? Pet.kkom.hop() : Pet.kkom.wave(); kkomSay(["안녕하세요, 대장님. 꼼꼼이입니다.", "숫자 검산은 제가 맡고 있어요.", "예산은 꼭 정해 두세요."][Math.floor(Math.random() * 3)]); } });
+      Pet.kkom = window.Lotto3D.mount($("#roam3-body"), { variant: "kkom", onTap: () => { if (!Pet.kkom) return; Math.random() < 0.5 ? Pet.kkom.hop() : Pet.kkom.wave(); popSound(Kkom.x, true); openAsk(!$("#roam-ask").hidden && Roam.askWho === "kkom" ? false : true, "kkom"); } });
     }
     if (!Pet.kkom) { el.hidden = true; return; }
     Pet.kkom.onStep(() => { if (wstate(Kkom).mode === "waddle" || Gather.on) popSound(Kkom.x, true); });
@@ -1209,7 +1226,7 @@
     const el = $("#lotto-roam"); el.hidden = !on; cancelAnimationFrame(Hop.raf); Hop.raf = 0; Hop.last = 0; wstate(Roam).dur = 0;
     if (!on) { Pet.roam && Pet.roam.walk(false); setGirl(Girl.on); setKkom(Kkom.on); return; }
     if (!Pet.roam && window.Lotto3D && window.Lotto3D.ok) {
-      Pet.roam = window.Lotto3D.mount($("#roam-body"), { onTap: () => { if (!Pet.roam) return; Math.random() < 0.5 ? Pet.roam.hop() : Pet.roam.wave(); popSound(Roam.x); openAsk(!$("#roam-ask").hidden ? false : true); } });
+      Pet.roam = window.Lotto3D.mount($("#roam-body"), { onTap: () => { if (!Pet.roam) return; Math.random() < 0.5 ? Pet.roam.hop() : Pet.roam.wave(); popSound(Roam.x); openAsk(!$("#roam-ask").hidden && Roam.askWho === "lotto" ? false : true, "lotto"); } });
     }
     if (!Pet.roam) { Roam.on = false; el.hidden = true; document.body.classList.remove("roam-on"); return; }
     roamPlace(Roam.x || innerWidth - Roam.W - 30, Roam.y || roamBounds().maxY);
@@ -1249,11 +1266,11 @@
   window.addEventListener("lotto3d-ready", initPet);
   if (window.Lotto3D) initPet();
 
-  function addMsg(role, content, cards, mood) {
-    const el = document.createElement("div");
-    el.className = "msg " + role;
+  function addMsg(role, content, cards, mood, who) {
+    const el = document.createElement("div"), W = WHO[whoOf(who)];
+    el.className = "msg " + role + (role !== "user" ? " who-" + whoOf(who) : "");
     if (role === "user") el.textContent = content;
-    else el.innerHTML = `<div class="who">${avatar(mood || "normal")}<span><b>로또</b><i>· 공 박사</i></span></div><div class="body">${md(content)}</div>`;
+    else el.innerHTML = `<div class="who">${avatar(mood || "normal", who)}<span><b>${W.name}</b><i>· ${W.sub}</i></span></div><div class="body">${md(content)}</div>`;
     if (cards) appendCards(el, cards);
     $("#chat-log").appendChild(el);
     $("#chat-log").scrollTop = 1e9;
@@ -1386,18 +1403,39 @@
     store.set("chat", JSON.stringify(chat.history.slice(-20)));
   }
 
-  async function send(text) {
+  function addressee(text) {
+    if (/^\s*뽀또|뽀또(야|아)(?![가-힣])/.test(text)) return "ppoddo";
+    if (/^\s*꼼꼼|꼼꼼(아|이야)(?![가-힣])/.test(text)) return "kkom";
+    return "lotto";
+  }
+  // 캐릭터별 표정·말하는 입·말풍선
+  function moodAs(who, m) {
+    if (who === "ppoddo") return Pet.girl ? girlMood(m, m === "think" ? 0 : 2600) : null;
+    if (who === "kkom") return Pet.kkom ? kkomMood(m, m === "think" ? 0 : 2600) : null;
+    chatMood(m);
+  }
+  function talkAs(who, on) {
+    if (who === "lotto") return chatTalk(on);
+    Roam.talking = !!on; const p = who === "ppoddo" ? Pet.girl : Pet.kkom; if (p) p.talk(on);
+  }
+  function bubbleAs(who, text, ms, keep) {
+    if (who === "lotto") return keep ? roamLive(text) : roamSay(text, ms);
+    const t = keep ? snip(text, 120) : text; if (!t) return;
+    if (who === "ppoddo") girlSay(t, ms || 20000, true); else kkomSay(t, ms || 20000, true);
+  }
+  async function send(text, forceWho) {
     text = (text || "").trim();
     if (!text || chat.busy) return;
     $(".chips-welcome")?.remove(); closePop(); stopVoice();
-    if (/상의|둘이|뽀또/.test(text) && text.length < 90) return runDuo(text);
+    if (/상의|둘이|셋이|회의/.test(text) && text.length < 90) return runDuo(text);
+    const who = whoOf(forceWho || addressee(text));
     const model = $("#lms-model").value;
     if (!model) { toast("LM Studio 모델을 먼저 연결하세요"); return; }
     $("#chat-text").value = ""; $("#chat-text").style.height = "auto";
     addMsg("user", text);
     chat.history.push({ role: "user", content: text });
-    const el = addMsg("bot", "", null, "think");
-    chatMood("think");
+    const el = addMsg("bot", "", null, "think", who);
+    moodAs(who, "think");
     const usedTools = [];
     const body = $(".body", el);
     body.innerHTML = `<span class="typing">자료 확인 중…</span>`;
@@ -1408,7 +1446,7 @@
     try {
       const r = await fetch("/api/chat", {
         method: "POST", headers: { "Content-Type": "application/json" }, signal: chat.ctrl.signal,
-        body: JSON.stringify({ base: lmsBase(), model, messages: chat.history.slice(-12) }),
+        body: JSON.stringify({ base: lmsBase(), model, persona: who, messages: chat.history.slice(-12).map((m) => ({ role: m.role, content: m.content })) }),
       });
       if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || `오류 ${r.status}`); }
       const reader = r.body.getReader(), dec = new TextDecoder();
@@ -1453,9 +1491,9 @@
           if (d.reasoning_content || d.reasoning) { thinking = true; body.innerHTML = `<span class="typing">생각 중…</span>`; }
           if (d.content) {
             answer += d.content;
-            if (!talking) { talking = true; chatTalk(true); }
+            if (!talking) { talking = true; talkAs(who, true); }
             const shown = answer.replace(/<think>[\s\S]*?(<\/think>|$)/g, "").trim();
-            roamLive(shown);
+            bubbleAs(who, shown, 0, true);
             body.innerHTML = shown ? md(shown) : `<span class="typing">${thinking || /<think>/.test(answer) ? "생각 중…" : "작성 중…"}</span>`;
             $("#chat-log").scrollTop = 1e9;
           }
@@ -1486,13 +1524,13 @@
       }
     }
     appendCards(el, cards);
-    chatTalk(false);
+    talkAs(who, false);
     const mood = moodFor(answer, usedTools);
     setAvatarMood(el, mood);
-    chatMood(mood);
-    speakAnswer(answer);
-    { const f = answer.replace(/```[\s\S]*?```/g, " ").replace(/[*#>`|_~]/g, " ").replace(/\s+/g, " ").trim(); roamSay(f.length > 150 ? f.slice(0, 147) + "…" : f, Voice.on ? 16000 : 10000); }
-    chat.history.push(cards.length ? { role: "assistant", content: answer, cards, mood } : { role: "assistant", content: answer, mood });
+    moodAs(who, mood);
+    speakAnswer(answer, who);
+    { const f = answer.replace(/```[\s\S]*?```/g, " ").replace(/[*#>`|_~]/g, " ").replace(/\s+/g, " ").trim(); bubbleAs(who, f.length > 150 ? f.slice(0, 147) + "…" : f, Voice.on ? 16000 : 10000); }
+    chat.history.push(cards.length ? { role: "assistant", content: answer, cards, mood, who } : { role: "assistant", content: answer, mood, who });
     store.set("chat", JSON.stringify(chat.history.slice(-20)));
     chat.busy = false; chat.ctrl = null;
     $("#chat-send").textContent = "보내기";

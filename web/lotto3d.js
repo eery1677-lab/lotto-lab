@@ -431,12 +431,12 @@ const Lotto3D = {
     return out;
   },
   /** 표정별 그림(dataURL)을 미리 찍어 둔다 — 채팅 아바타 등 작은 곳에 쓴다. */
-  snapshots(size, yaw, moods, view) {
+  snapshots(size, yaw, moods, view, variant) {
     size = size || 160;
     const renderer = makeRenderer({ preserveDrawingBuffer: true, antialias: true }); if (!renderer) return null;
     renderer.setPixelRatio(1); renderer.setSize(size, size, false);
     const scene = new THREE.Scene(); addLights(scene);
-    const ch = new Lotto(); ch.userYaw = yaw == null ? 0.3 : yaw; scene.add(ch.group);
+    const ch = new Lotto(variant); ch.userYaw = yaw == null ? 0.3 : yaw; scene.add(ch.group);
     const cam = new THREE.PerspectiveCamera(26, 1, 0.1, 50);
     if (view === "bust") { cam.position.set(0, 1.62, 5.0); cam.lookAt(0, 1.56, 0); }   // 아바타용: 모자·얼굴이 동그라미에 꽉 차게
     else { cam.position.set(0, 1.75, 7.0); cam.lookAt(0, 1.4, 0); }

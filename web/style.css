@@ -513,3 +513,7 @@ body.roam-on .lotto-pet, body.roam-on .lotto-chat, body.roam-on .lotto-big { dis
 @media (max-width: 599px) { .duo-card .tcard, .duo-note { margin-left: 0; } }
 
 .duo-line.kkom b { background: #c9f2e6; color: #0f5f46; }
+
+/* 이름을 불러 답한 캐릭터 표시 */
+.msg.who-ppoddo .who b { color: #c2185b; }
+.msg.who-kkom .who b { color: #0f766e; }

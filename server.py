@@ -144,6 +144,25 @@ def _lms_base(base):
     return base
 
 
+PERSONA_HEAD = {
+    "ppoddo": ("뽀또", "너는 '로또 확률 연구소'의 '뽀또'다(로또의 여자친구, 분홍색 공 캐릭터). 밝고 다정하며 호기심이 많고, 어려운 숫자 이야기도 쉽게 풀어 준다. 그래도 사실과 숫자는 정확하게 말한다.",
+               "말투는 밝고 귀여운 존댓말(~요, ~해요)이고 이모지는 쓰지 않는다. 게임은 '로또 6/45' 또는 '복권'이라고 부른다."),
+    "kkom": ("꼼꼼이", "너는 '로또 확률 연구소'의 '꼼꼼이'다(회계사·검증 담당, 초록 눈가리개를 쓴 민트색 공 캐릭터). 숫자·비용·세금·예산을 꼼꼼히 따지고, 근거 없는 말은 바로잡는다.",
+             "말투는 차분하고 또박또박한 존댓말(~입니다/~예요)로 짧고 정확하게 말하며 이모지는 쓰지 않는다. 게임은 '로또 6/45' 또는 '복권'이라고 부른다."),
+}
+
+
+def persona_prompt(who):
+    """대장님이 이름을 부른 캐릭터의 말투로 바꾼다. 첫 줄(정체)과 넷째 줄(말투)만 바꾸고 나머지 규칙은 그대로."""
+    if who not in PERSONA_HEAD:
+        return SYSTEM_PROMPT
+    name, head, tone = PERSONA_HEAD[who]
+    lines = SYSTEM_PROMPT.split("\n")
+    lines[0], lines[3] = head, tone
+    lines[2] = lines[2].replace("저는 로또입니다", f"저는 {name}입니다")
+    return "\n".join(lines)
+
+
 def lms_models(base):
     base = _lms_base(base)
     try:  # LM Studio 전용 API: 로드 여부까지 나옴
@@ -609,9 +628,11 @@ class Handler(BaseHTTPRequestHandler):
             pass
         want_tools = body.get("tools") is not False
 
+        who = body.get("persona") if body.get("persona") in PERSONA_HEAD else "lotto"
+
         def system(tools_on):
             facts = a.facts_text() if tools_on else build_context(a, question)
-            return facts, SYSTEM_PROMPT.format(facts=facts) + (TOOL_RULES if tools_on else "")
+            return facts, persona_prompt(who).format(facts=facts) + (TOOL_RULES if tools_on else "")
 
         facts, sys_text = system(want_tools)
         # 문맥이 작게 로드된 모델(예: 다른 앱이 8K 로 다시 불러온 경우)은 지시문·자료만 약 4,100토큰이라 대화를 줄인다
