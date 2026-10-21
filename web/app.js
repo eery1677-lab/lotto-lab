@@ -1014,48 +1014,92 @@
     } catch (e) { /* 소리 불가 환경 */ }
   }
   function roamPlace(x, y) { Roam.x = x; Roam.y = y; $("#lotto-roam").style.transform = `translate(${x}px,${y}px)`; }
-  function startHop() {
-    const { maxX, maxY, minY } = roamBounds(), K = Roam.W / 150;
-    const wd = Hop.mode === "waddle", leap = !wd && Math.random() < 0.15, dist = K * (wd ? rnd(140, 300) : leap ? rnd(260, 400) : rnd(80, 170));
-    let tx = Roam.x, ty = Roam.y, ok = false;
-    for (let i = 0; i < 10 && !ok; i++) {
-      const hd = Hop.heading + (i < 4 ? rnd(-(wd ? 0.7 : 1.1), wd ? 0.7 : 1.1) : rnd(-3.14, 3.14));
-      tx = Roam.x + Math.cos(hd) * dist; ty = Roam.y + Math.sin(hd) * dist * 0.75;
-      if (tx >= 8 && tx <= maxX && ty >= minY && ty <= maxY) { ok = true; Hop.heading = hd; }
-    }
-    if (!ok) { tx = Math.max(8, Math.min(maxX, tx)); ty = Math.max(minY, Math.min(maxY, ty)); Hop.heading = Math.atan2(ty - Roam.y + (innerHeight / 2 - ty) * 0.2, tx - Roam.x + (innerWidth / 2 - tx) * 0.2); }
-    Hop.fx = Roam.x; Hop.fy = Roam.y; Hop.tx = tx; Hop.ty = ty; Hop.t = 0;
-    const d = Math.hypot(tx - Hop.fx, ty - Hop.fy);
-    Hop.dur = wd ? d / (85 * K) : 0.34 + d / (650 * K); Hop.h = wd ? 0 : ((leap ? 90 : 28) + d * 0.22 + rnd(0, 14)) * Math.max(0.6, K);
-    Pet.roam.walk(true, tx >= Hop.fx ? 1 : -1, Hop.mode);
+  // ---- 셋이 각자 따로 돌아다닌다(같은 방식: 통통 뛰기·아장아장·쉬기, 서로 너무 붙지 않게). 회의가 시작되면 한곳에 모였다가 끝나면 흩어진다.
+  const WALK = {
+    lotto: { pet: () => Pet.roam, st: () => Roam, el: "#lotto-roam", body: "#roam-body", soft: false },
+    girl: { pet: () => Pet.girl, st: () => Girl, el: "#lotto-roam2", body: "#roam2-body", soft: true },
+    kkom: { pet: () => Pet.kkom, st: () => Kkom, el: "#lotto-roam3", body: "#roam3-body", soft: true },
+  };
+  const Gather = { on: false, spots: null };
+  const wstate = (st) => st.w || (st.w = { mode: "hop", t: 0, dur: 0, fx: 0, fy: 0, tx: 0, ty: 0, h: 0, heading: Math.random() * 6.28, left: 0, rest: rnd(0.4, 2.5), dir: 1, arrived: false });
+  const walkerOn = (k) => { const W = WALK[k], el = $(W.el); return !!(W.pet() && el && !el.hidden); };
+  function othersNear(name, x, y, r) {
+    return Object.keys(WALK).some((k) => k !== name && walkerOn(k) && Math.hypot(WALK[k].st().x - x, WALK[k].st().y - y) < r);
   }
+  function startHop(name) {
+    const W = WALK[name], st = W.st(), w = wstate(st), pet = W.pet();
+    const { maxX, maxY, minY } = roamBounds(), K = Roam.W / 150;
+    const wd = w.mode === "waddle", leap = !wd && Math.random() < 0.15, dist = K * (wd ? rnd(140, 300) : leap ? rnd(260, 400) : rnd(80, 170));
+    let tx = st.x, ty = st.y, ok = false;
+    for (let i = 0; i < 14 && !ok; i++) {
+      const hd = w.heading + (i < 5 ? rnd(-(wd ? 0.7 : 1.1), wd ? 0.7 : 1.1) : rnd(-3.14, 3.14));
+      tx = st.x + Math.cos(hd) * dist; ty = st.y + Math.sin(hd) * dist * 0.75;
+      if (tx >= 8 && tx <= maxX && ty >= minY && ty <= maxY && !othersNear(name, tx, ty, Roam.W * 0.9)) { ok = true; w.heading = hd; }
+    }
+    if (!ok) { tx = Math.max(8, Math.min(maxX, tx)); ty = Math.max(minY, Math.min(maxY, ty)); w.heading = Math.atan2(ty - st.y + (innerHeight / 2 - ty) * 0.2, tx - st.x + (innerWidth / 2 - tx) * 0.2); }
+    w.fx = st.x; w.fy = st.y; w.tx = tx; w.ty = ty; w.t = 0;
+    const d = Math.hypot(tx - w.fx, ty - w.fy);
+    w.dur = wd ? d / (85 * K) : 0.34 + d / (650 * K); w.h = wd ? 0 : ((leap ? 90 : 28) + d * 0.22 + rnd(0, 14)) * Math.max(0.6, K);
+    w.dir = tx >= w.fx ? 1 : -1;
+    pet.walk(true, w.dir, w.mode);
+  }
+  function stepWalker(name, dt, ts) {
+    if (!walkerOn(name)) return;
+    const W = WALK[name], st = W.st(), pet = W.pet(), el = $(W.el), body = $(W.body), w = wstate(st), K = Roam.W / 150;
+    if (w.dur > 0) {                                       // 뛰거나 걷는 중
+      w.t += dt; const k = Math.min(1, w.t / w.dur);
+      const x = w.fx + (w.tx - w.fx) * k, gy = w.fy + (w.ty - w.fy) * k, wd = w.mode === "waddle";
+      st.x = x; st.y = gy;
+      el.style.transform = `translate(${x.toFixed(1)}px,${(gy - (wd ? Math.abs(Math.sin(w.t * 7)) * 4 : Math.sin(k * Math.PI) * w.h)).toFixed(1)}px)`;
+      body.style.transform = wd ? "" : k < 0.14 ? "scale(.93,1.09)" : "";
+      if (k >= 1) {                                        // 착지: 찌그러졌다 펴지고 "통"
+        w.dur = 0; if (!wd) { popSound(x, W.soft); body.style.transform = "scale(1.13,.87)"; setTimeout(() => { body.style.transform = ""; }, 110); }
+        if (--w.left <= 0) { pet.walk(false); w.rest = rnd(0.8, 3.6); if (!Gather.on && Math.random() < 0.5) pet.act(["wave", "hatTip", "wiggle", "twirl", "look"][Math.floor(Math.random() * 5)]); }
+        else w.rest = rnd(0.02, 0.12);
+      }
+      return;
+    }
+    if (Gather.on && Gather.spots && Gather.spots[name]) {   // 회의: 자기 자리로 아장아장 걸어가서 선다
+      const sp = Gather.spots[name], dx = sp.x - st.x, dy = sp.y - st.y, d = Math.hypot(dx, dy);
+      if (d < 3) { if (!w.arrived) { w.arrived = true; pet.walk(false); st.x = sp.x; st.y = sp.y; el.style.transform = `translate(${sp.x.toFixed(1)}px,${sp.y.toFixed(1)}px)`; } return; }
+      w.arrived = false;
+      if (Math.abs(dx) > 6) w.dir = dx > 0 ? 1 : -1;
+      pet.walk(true, w.dir, "waddle");
+      const step = Math.min(d, (d > 260 ? 260 : 150) * K * dt);
+      st.x += dx / d * step; st.y += dy / d * step;
+      el.style.transform = `translate(${st.x.toFixed(1)}px,${(st.y - Math.abs(Math.sin(ts * 0.007)) * 4).toFixed(1)}px)`;
+      return;
+    }
+    if (W.idle) W.idle(ts);                                  // 뽀또·꼼꼼이: 가끔 표정·혼잣말
+    if (Roam.talking || Roam.ask || chat.busy) return;       // 말하는 중·질문 입력 중·생각 중에는 서서 기다린다
+    w.rest -= dt;
+    if (w.rest <= 0) {
+      if (w.left <= 0) { w.mode = Math.random() < 0.45 ? "waddle" : "hop"; w.left = w.mode === "waddle" ? 2 + Math.floor(Math.random() * 3) : 3 + Math.floor(Math.random() * 6); }
+      startHop(name);
+    }
+  }
+  // 회의 자리: 화면 아래쪽 가운데에 나란히(뽀또 · 로또 · 꼼꼼이). AI 상담 화면(넓은 화면)에서는 입력줄 위로.
+  function gatherStart() {
+    if (!Roam.on) return;
+    const { maxX, maxY, minY } = roamBounds(), gap = Roam.W * 1.02;
+    const names = ["girl", "lotto", "kkom"].filter(walkerOn), n = names.length;
+    const cx = Math.max(8, Math.min(maxX, innerWidth / 2 - Roam.W / 2));
+    const y = Math.max(minY, maxY - (document.body.classList.contains("ai-mode") && !Roam.small ? 80 : 0));
+    Gather.spots = {};
+    names.forEach((k, i) => { Gather.spots[k] = { x: Math.max(8, Math.min(maxX, cx + (i - (n - 1) / 2) * gap)), y }; wstate(WALK[k].st()).arrived = false; });
+    Gather.on = true;
+  }
+  function gatherEnd() {
+    Gather.on = false; Gather.spots = null;
+    for (const k in WALK) { const w = wstate(WALK[k].st()); w.rest = rnd(0.6, 3); w.left = 0; w.arrived = false; }
+  }
+  const gatherReady = () => !Gather.on || Object.keys(Gather.spots || {}).every((k) => !walkerOn(k) || wstate(WALK[k].st()).arrived);
   function roamLoop(ts) {
     Hop.raf = 0; if (!Roam.on || !Pet.roam) return;
     Hop.raf = requestAnimationFrame(roamLoop);
     const dt = Hop.last ? Math.min(0.05, (ts - Hop.last) / 1000) : 0; Hop.last = ts;
     if (document.hidden) return;
-    girlFollow(dt, ts); kkomFollow(dt, ts);
-    const el = $("#lotto-roam"), body = $("#roam-body");
-    if (Hop.dur > 0) {
-      Hop.t += dt; const k = Math.min(1, Hop.t / Hop.dur);
-      const x = Hop.fx + (Hop.tx - Hop.fx) * k, gy = Hop.fy + (Hop.ty - Hop.fy) * k;
-      Roam.x = x; Roam.y = gy;
-      const wd = Hop.mode === "waddle";
-      el.style.transform = `translate(${x}px,${gy - (wd ? Math.abs(Math.sin(Hop.t * 7)) * 4 : Math.sin(k * Math.PI) * Hop.h)}px)`;
-      body.style.transform = wd ? "" : k < 0.14 ? "scale(.93,1.09)" : "";
-      if (k >= 1) {                                  // 착지: 찌그러졌다 펴지고 "통"
-        Hop.dur = 0; if (!wd) { popSound(x); body.style.transform = "scale(1.13,.87)"; setTimeout(() => { body.style.transform = ""; }, 110); }
-        if (--Hop.left <= 0) { Pet.roam.walk(false); Hop.rest = rnd(0.8, 3.2); if (Math.random() < 0.5) Pet.roam.act(["wave", "hatTip", "wiggle", "twirl", "look"][Math.floor(Math.random() * 5)]); }
-        else Hop.rest = rnd(0.02, 0.12);
-      }
-      return;
-    }
-    if (Roam.talking || Roam.ask || chat.busy) return;   // 말하는 중·질문 입력 중·생각 중에는 서서 이야기
-    Hop.rest -= dt;
-    if (Hop.rest <= 0) {
-      if (Hop.left <= 0) { Hop.mode = Math.random() < 0.45 ? "waddle" : "hop"; Hop.left = Hop.mode === "waddle" ? 2 + Math.floor(Math.random() * 3) : 3 + Math.floor(Math.random() * 6); }
-      startHop();
-    }
+    for (const k of ["lotto", "girl", "kkom"]) stepWalker(k, dt, ts);
   }
   // 로또를 클릭하면 말 걸기 입력줄이 열린다 → 질문은 AI 상담과 같은 길로 가고, 답은 말풍선에 실시간으로 나온다
   function openAsk(on) {
@@ -1080,33 +1124,6 @@
     girlMood(Math.random() < 0.5 ? "happy" : "wink", Math.min(4200, (ms || 4200)));
     if (Pet.girl && !(Voice.on && Voice.mode === 3)) { Pet.girl.talk(true); setTimeout(() => Pet.girl && Pet.girl.talk(false), Math.min(3200, 600 + text.length * 120)); }
   }
-  // 로또 곁을 부드럽게 따라간다: 속도를 서서히 올리고 줄이고(급정지·순간이동 없음), 한쪽 자리를 유지하고(화면 가장자리에서만 반대편으로),
-  // 멀 때만 뛰고(여유 두고 되돌아옴) 가까우면 아장아장, 도착하면 서서 표정을 짓는다
-  function girlFollow(dt, ts) {
-    const el = $("#lotto-roam2"); if (!Girl.on || !Pet.girl || el.hidden) return;
-    const { maxX, maxY, minY } = roamBounds(), K = Roam.W / 150;
-    if (!Girl.side) Girl.side = Girl.x < Roam.x ? -1 : 1;
-    const want = (sd) => Roam.x + sd * 135 * K;
-    if (want(Girl.side) < 8 || want(Girl.side) > maxX) Girl.side = -Girl.side;        // 자리가 없을 때만 반대편
-    const tx = Math.max(8, Math.min(maxX, want(Girl.side))), ty = Math.max(minY, Math.min(maxY, Roam.y + 12 * K));
-    const dx = tx - Girl.x, dy = ty - Girl.y, d = Math.hypot(dx, dy);
-    const still = Roam.ask || Roam.talking;
-    if (!Girl.run && d > 300 * K) Girl.run = true; else if (Girl.run && d < 150 * K) Girl.run = false;
-    const goal = still || d < (Girl.moving ? 10 : 42) * K ? 0 : K * (Girl.run ? Math.min(340, 80 + d * 1.1) : Math.min(120, 30 + d * 0.9));
-    const k = 1 - Math.exp(-(goal > Girl.sp ? 5 : 8) * dt);                           // 가속은 천천히, 감속은 조금 빨리
-    Girl.sp += (goal - Girl.sp) * k;
-    Girl.moving = Girl.sp > 6;
-    if (Girl.moving && d > 0.5) {
-      const step = Math.min(d, Girl.sp * dt); Girl.x += dx / d * step; Girl.y += dy / d * step;
-      if (Math.abs(dx) > 14) Girl.dir = dx > 0 ? 1 : -1;
-      Pet.girl.walk(true, Girl.dir || 1, Girl.run ? "hop" : "waddle");
-    } else { Pet.girl.walk(false); Girl.sp = 0; }
-    const ph = ts * (Girl.run ? 0.013 : 0.007), bob = Girl.moving ? Math.abs(Math.sin(ph)) * (Girl.run ? Math.min(12, Girl.sp / 25) : 3) : 0;
-    el.style.transform = `translate(${Girl.x.toFixed(1)}px,${(Girl.y - bob).toFixed(1)}px)`;
-    // 표정: 서 있을 때 가끔 웃거나 윙크, 말풍선을 띄울 땐 기쁜 표정
-    if (!Girl.moving && ts > Girl.nextMood) { Girl.nextMood = ts + rnd(7000, 14000); girlMood(Math.random() < 0.5 ? "happy" : "wink", 1900); }
-    if (ts > Girl.nextSay) { Girl.nextSay = ts + rnd(25000, 45000); if (!Roam.talking && !Roam.ask) girlSay(GIRL_LINES[Math.floor(Math.random() * GIRL_LINES.length)]); }
-  }
   function girlMood(m, back) {
     if (!Pet.girl) return; Pet.girl.setMood(m); clearTimeout(Girl.moodT);
     if (back) Girl.moodT = setTimeout(() => { if (Pet.girl && Pet.girl.mood === m) Pet.girl.setMood("normal"); }, back);
@@ -1120,6 +1137,7 @@
       Pet.girl = window.Lotto3D.mount($("#roam2-body"), { variant: "girl", onTap: () => { if (!Pet.girl) return; Math.random() < 0.5 ? Pet.girl.hop() : Pet.girl.wave(); girlSay(["안녕하세요, 대장님~!", "저 뽀또예요, 헤헤.", "로또랑 친하게 지내요!"][Math.floor(Math.random() * 3)]); } });
     }
     if (!Pet.girl) { el.hidden = true; return; }
+    Pet.girl.onStep(() => { if (wstate(Girl).mode === "waddle" || Gather.on) popSound(Girl.x, true); });
     if (!Girl.placed) { Girl.x = Math.max(8, Math.min(innerWidth - Roam.W - 8, Roam.x - 140 * (Roam.W / 150))); Girl.y = Roam.y; Girl.placed = true; el.style.transform = `translate(${Girl.x}px,${Girl.y}px)`; }
     Girl.nextSay = performance.now() + 3500; setTimeout(() => girlSay("대장님, 안녕하세요~! 저는 뽀또예요."), 400);
   }
@@ -1137,35 +1155,6 @@
     kkomMood("firm", Math.min(3200, (ms || 4200)));
     if (Pet.kkom && !(Voice.on && Voice.mode === 3)) { Pet.kkom.talk(true); setTimeout(() => Pet.kkom && Pet.kkom.talk(false), Math.min(3200, 600 + text.length * 120)); }
   }
-  // 로또 곁을 부드럽게 따라간다: 속도를 서서히 올리고 줄이고(급정지·순간이동 없음), 한쪽 자리를 유지하고(화면 가장자리에서만 반대편으로),
-  // 멀 때만 뛰고(여유 두고 되돌아옴) 가까우면 아장아장, 도착하면 서서 표정을 짓는다
-  function kkomFollow(dt, ts) {
-    const el = $("#lotto-roam3"); if (!Kkom.on || !Pet.kkom || el.hidden) return;
-    const { maxX, maxY, minY } = roamBounds(), K = Roam.W / 150;
-    // 꼼꼼이는 뽀또의 반대편에 선다. 반대편에 자리가 없으면 뽀또와 같은 쪽 한 칸 더 바깥에.
-    let far = 1;
-    Kkom.side = Girl.on && Girl.side && !$("#lotto-roam2").hidden ? -Girl.side : (Kkom.side || (Kkom.x < Roam.x ? -1 : 1));
-    const want = (sd) => Roam.x + sd * 135 * K * far;
-    if (want(Kkom.side) < 8 || want(Kkom.side) > maxX) { if (Girl.on && Girl.side) { Kkom.side = Girl.side; far = 2; } else Kkom.side = -Kkom.side; }
-    const tx = Math.max(8, Math.min(maxX, want(Kkom.side))), ty = Math.max(minY, Math.min(maxY, Roam.y + 12 * K));
-    const dx = tx - Kkom.x, dy = ty - Kkom.y, d = Math.hypot(dx, dy);
-    const still = Roam.ask || Roam.talking;
-    if (!Kkom.run && d > 300 * K) Kkom.run = true; else if (Kkom.run && d < 150 * K) Kkom.run = false;
-    const goal = still || d < (Kkom.moving ? 10 : 42) * K ? 0 : K * (Kkom.run ? Math.min(340, 80 + d * 1.1) : Math.min(120, 30 + d * 0.9));
-    const k = 1 - Math.exp(-(goal > Kkom.sp ? 5 : 8) * dt);                           // 가속은 천천히, 감속은 조금 빨리
-    Kkom.sp += (goal - Kkom.sp) * k;
-    Kkom.moving = Kkom.sp > 6;
-    if (Kkom.moving && d > 0.5) {
-      const step = Math.min(d, Kkom.sp * dt); Kkom.x += dx / d * step; Kkom.y += dy / d * step;
-      if (Math.abs(dx) > 14) Kkom.dir = dx > 0 ? 1 : -1;
-      Pet.kkom.walk(true, Kkom.dir || 1, Kkom.run ? "hop" : "waddle");
-    } else { Pet.kkom.walk(false); Kkom.sp = 0; }
-    const ph = ts * (Kkom.run ? 0.013 : 0.007), bob = Kkom.moving ? Math.abs(Math.sin(ph)) * (Kkom.run ? Math.min(12, Kkom.sp / 25) : 3) : 0;
-    el.style.transform = `translate(${Kkom.x.toFixed(1)}px,${(Kkom.y - bob).toFixed(1)}px)`;
-    // 표정: 서 있을 때 가끔 웃거나 윙크, 말풍선을 띄울 땐 기쁜 표정
-    if (!Kkom.moving && ts > Kkom.nextMood) { Kkom.nextMood = ts + rnd(7000, 14000); kkomMood(Math.random() < 0.35 ? "happy" : "firm", 1700); }
-    if (ts > Kkom.nextSay) { Kkom.nextSay = ts + rnd(40000, 70000); if (!Roam.talking && !Roam.ask) kkomSay(KKOM_LINES[Math.floor(Math.random() * KKOM_LINES.length)]); }
-  }
   function kkomMood(m, back) {
     if (!Pet.kkom) return; Pet.kkom.setMood(m); clearTimeout(Kkom.moodT);
     if (back) Kkom.moodT = setTimeout(() => { if (Pet.kkom && Pet.kkom.mood === m) Pet.kkom.setMood("normal"); }, back);
@@ -1179,6 +1168,7 @@
       Pet.kkom = window.Lotto3D.mount($("#roam3-body"), { variant: "kkom", onTap: () => { if (!Pet.kkom) return; Math.random() < 0.5 ? Pet.kkom.hop() : Pet.kkom.wave(); kkomSay(["안녕하세요, 대장님. 꼼꼼이입니다.", "숫자 검산은 제가 맡고 있어요.", "예산은 꼭 정해 두세요."][Math.floor(Math.random() * 3)]); } });
     }
     if (!Pet.kkom) { el.hidden = true; return; }
+    Pet.kkom.onStep(() => { if (wstate(Kkom).mode === "waddle" || Gather.on) popSound(Kkom.x, true); });
     if (!Kkom.placed) { Kkom.x = Math.max(8, Math.min(innerWidth - Roam.W - 8, Roam.x + 140 * (Roam.W / 150))); Kkom.y = Roam.y; Kkom.placed = true; el.style.transform = `translate(${Kkom.x}px,${Kkom.y}px)`; }
     Kkom.nextSay = performance.now() + 9000; setTimeout(() => kkomSay("안녕하세요, 대장님. 검산 담당 꼼꼼이입니다."), 400);
   }
@@ -1203,20 +1193,28 @@
   $("#phone-close").addEventListener("click", () => { $("#phone-modal").hidden = true; });
   $("#phone-modal").addEventListener("click", (e) => { if (e.target.id === "phone-modal") $("#phone-modal").hidden = true; });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") $("#phone-modal").hidden = true; });
+  WALK.girl.idle = (ts) => {
+    if (!wstate(Girl).dur && ts > Girl.nextMood) { Girl.nextMood = ts + rnd(7000, 14000); girlMood(Math.random() < 0.5 ? "happy" : "wink", 1900); }
+    if (ts > Girl.nextSay) { Girl.nextSay = ts + rnd(25000, 45000); if (!Roam.talking && !Roam.ask) girlSay(GIRL_LINES[Math.floor(Math.random() * GIRL_LINES.length)]); }
+  };
+  WALK.kkom.idle = (ts) => {
+    if (!wstate(Kkom).dur && ts > Kkom.nextMood) { Kkom.nextMood = ts + rnd(9000, 16000); kkomMood(Math.random() < 0.35 ? "happy" : "firm", 1700); }
+    if (ts > Kkom.nextSay) { Kkom.nextSay = ts + rnd(40000, 70000); if (!Roam.talking && !Roam.ask) kkomSay(KKOM_LINES[Math.floor(Math.random() * KKOM_LINES.length)]); }
+  };
   function setRoam(on) {
     Roam.on = on; store.set("roam", on ? "1" : "0");
     document.body.classList.toggle("roam-on", on && !!Pet.big);
     $("#roam-btn").checked = on;
     roamSize();
-    const el = $("#lotto-roam"); el.hidden = !on; cancelAnimationFrame(Hop.raf); Hop.raf = 0; Hop.last = 0; Hop.dur = 0;
+    const el = $("#lotto-roam"); el.hidden = !on; cancelAnimationFrame(Hop.raf); Hop.raf = 0; Hop.last = 0; wstate(Roam).dur = 0;
     if (!on) { Pet.roam && Pet.roam.walk(false); setGirl(Girl.on); setKkom(Kkom.on); return; }
     if (!Pet.roam && window.Lotto3D && window.Lotto3D.ok) {
       Pet.roam = window.Lotto3D.mount($("#roam-body"), { onTap: () => { if (!Pet.roam) return; Math.random() < 0.5 ? Pet.roam.hop() : Pet.roam.wave(); popSound(Roam.x); openAsk(!$("#roam-ask").hidden ? false : true); } });
     }
     if (!Pet.roam) { Roam.on = false; el.hidden = true; document.body.classList.remove("roam-on"); return; }
     roamPlace(Roam.x || innerWidth - Roam.W - 30, Roam.y || roamBounds().maxY);
-    Pet.roam.onStep(() => { if (Hop.mode === "waddle") popSound(Roam.x, true); });
-    Hop.left = 0; Hop.rest = 1.2; Hop.raf = requestAnimationFrame(roamLoop);
+    Pet.roam.onStep(() => { if (wstate(Roam).mode === "waddle" || Gather.on) popSound(Roam.x, true); });
+    wstate(Roam).left = 0; wstate(Roam).rest = 1.2; Hop.raf = requestAnimationFrame(roamLoop);
     setGirl(Girl.on); setKkom(Kkom.on);
   }
   window.addEventListener("resize", () => { roamSize(); if (Roam.on) { const b = roamBounds(); roamPlace(Math.max(0, Math.min(Roam.x, b.maxX)), Math.max(0, Math.min(Roam.y, b.maxY))); } });
@@ -1347,12 +1345,14 @@
     const duo = document.createElement("div"); duo.className = "duo"; body.innerHTML = ""; body.appendChild(duo);
     const showGirl = Roam.on && Girl.on && Pet.girl && !$("#lotto-roam2").hidden, showLotto = Roam.on && Pet.roam, showKkom = Roam.on && Kkom.on && Pet.kkom && !$("#lotto-roam3").hidden;
     Roam.talking = true;                                   // 회의하는 동안 모두 멈춰 선다
+    gatherStart(); let gathered = false;
     const said = []; let card = null, err = "", gotLine = false;
     for (;;) {
       if (!q.length) { await new Promise((r) => { wake = r; }); continue; }
       const ev = q.shift();
       if (ev.type === "__end" || ctrl.signal.aborted || my !== Voice.q) break;
       if (ev.type === "line") {
+        if (!gathered) { const t0 = Date.now(); while (!gatherReady() && Date.now() - t0 < 5000) await new Promise((r) => setTimeout(r, 150)); gathered = true; }
         gotLine = true;
         const isL = ev.who === "lotto", isK = ev.who === "kkom", nm = isL ? "로또" : isK ? "꼼꼼이" : "뽀또";
         const pet = isL ? (showLotto ? Pet.roam : null) : isK ? (showKkom ? Pet.kkom : null) : (showGirl ? Pet.girl : null);
@@ -1375,6 +1375,7 @@
       } else if (ev.type === "error") { err = ev.message || "알 수 없는 오류"; }
     }
     Roam.talking = false; Pet.roam && Pet.roam.talk(false); Pet.girl && Pet.girl.talk(false); Pet.kkom && Pet.kkom.talk(false);
+    setTimeout(gatherEnd, 2500);                           // 마무리 인사 뒤 잠시 있다가 흩어진다
     chat.busy = false; $("#chat-send").textContent = "보내기";
     if (!gotLine && err === "NOAPI") return runDuoClassic(text, { el });         // 서버가 옛 버전이면 예전 방식으로
     if (err && err !== "NOAPI") duo.insertAdjacentHTML("beforeend", `<div class="duo-note">회의가 중간에 멈췄어요: ${esc(err)}</div>`);
