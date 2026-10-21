@@ -1349,13 +1349,20 @@
   }
 
   // ---------------------------------------------------------------- 로또 ↔ 뽀또 대화 (사실은 코드, 말투는 AI — /api/duo)
-  function duoVoice(text, who, my, pet) {
+  const plainSpeech = (t) => t.replace(/\p{Extended_Pictographic}/gu, " ").replace(/\s+/g, " ").trim();
+  // 회의 한 줄 읽기. audioP = 미리 만들어 둔 소리(줄이 도착하자마자 만들기 시작). 소리가 8초 안에 안 오면 소리 없이 글 속도로 넘어가서 대화가 멈추지 않게 한다.
+  function duoVoice(text, who, my, pet, audioP) {
     return new Promise((done) => {
       const fin = () => { if (pet) pet.talk(false); done(); };
       const wait = Math.max(2400, text.length * 95);
-      const plain = text.replace(/\p{Extended_Pictographic}/gu, " ").replace(/\s+/g, " ").trim();
+      const plain = plainSpeech(text);
       if (Voice.on && Voice.mode === 3) {
-        ttsFetch(plain, who).then((blob) => { if (my !== Voice.q) return done(); return playBlob(blob, my, () => pet && pet.talk(true), fin); }).catch(() => { if (pet) pet.talk(true); setTimeout(fin, wait); });
+        const limit = new Promise((ok) => setTimeout(() => ok(null), 8000));
+        Promise.race([audioP || ttsFetch(plain, who).catch(() => null), limit]).then((blob) => {
+          if (my !== Voice.q) return done();
+          if (!blob) { if (pet) pet.talk(true); return setTimeout(fin, wait); }
+          return playBlob(blob, my, () => pet && pet.talk(true), fin);
+        });
       } else if (Voice.on && "speechSynthesis" in window && pickVoice()) {
         const v = pickVoice(), u = new SpeechSynthesisUtterance(plain); u.voice = v; u.lang = v.lang; u.rate = 1.1; u.pitch = who === "lotto" ? 1.3 : 1.8;
         u.onstart = () => pet && pet.talk(true); u.onend = fin; u.onerror = fin; speechSynthesis.speak(u);
@@ -1412,7 +1419,10 @@
     chat.busy = true; $("#chat-send").textContent = "중지"; chatMood("think");
     const ctrl = chat.ctrl = new AbortController(), my = ++Voice.q, q = [];
     let wake = null;
-    const push = (ev) => { q.push(ev); if (wake) { const w = wake; wake = null; w(); } };
+    const push = (ev) => {
+      if (ev.type === "line" && Voice.on && Voice.mode === 3) ev.audio = ttsFetch(plainSpeech(ev.text), ev.who).catch(() => null);   // 줄이 도착하자마자 소리를 만들기 시작(재생·다음 줄 생성과 겹쳐서)
+      q.push(ev); if (wake) { const w = wake; wake = null; w(); }
+    };
     (async () => {                                          // 서버가 한 줄씩 보내는 이벤트를 큐에 쌓는다
       try {
         const r = await fetch("/api/meeting", { method: "POST", headers: { "Content-Type": "application/json" }, signal: ctrl.signal,
@@ -1451,7 +1461,7 @@
         else if (isK) { if (showKkom) { kkomSay(ev.text, ms, true); kkomMood("firm", 1800); } }
         else if (showGirl) { girlSay(ev.text, ms, true); girlMood(/[?？]|…/.test(ev.text) ? "think" : "happy", 1800); }
         said.push(`${nm}: ${ev.text}`);
-        await duoVoice(ev.text, ev.who, my, pet);
+        await duoVoice(ev.text, ev.who, my, pet, ev.audio);
       } else if (ev.type === "cands") {
         duo.insertAdjacentHTML("beforeend", `<div class="duo-card">${candsCardHTML(ev.items, ev.added)}</div>`); $("#chat-log").scrollTop = 1e9;
       } else if (ev.type === "check") {
