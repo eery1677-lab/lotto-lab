@@ -588,3 +588,12 @@ body.in-room .lotto-roam { display: none !important; }
   100% { transform: scale(.7) translateY(-34px) rotate(3deg); opacity: 0; }
 }
 @media (prefers-reduced-motion: reduce) { .kin { animation: kin-fade 2.3s linear forwards; } @keyframes kin-fade { 0%, 80% { opacity: 1; } 100% { opacity: 0; } } }
+
+/* 연구 결과 보고서 카드 */
+.tcard.rep { border-left: 4px solid #6366f1; }
+.rep-title { font-weight: 800; font-size: 15.5px; margin: 4px 0 2px; }
+.rep-row { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; border-bottom: 1px dashed var(--line); font-size: 13.5px; }
+.rep-row b { text-align: right; font-weight: 700; }
+.rep-verdict { margin-top: 8px; padding: 8px 10px; border-radius: 10px; font-size: 13.5px; background: #e6f7ee; color: #0f5f3a; }
+.rep-verdict.weak { background: #fff6dc; color: #7a5a00; } .rep-verdict.sig { background: #ffeadb; color: #8a3b00; }
+.rep-cav { margin: 8px 0 0 18px; padding: 0; font-size: 12.5px; color: var(--muted); line-height: 1.6; }

@@ -427,13 +427,34 @@ function mountRoom(el, opts) {
   boardMesh.position.set(0, 2.6, -0.55); boardMesh.rotation.x = -0.18; boardMesh.scale.setScalar(0.001); boardMesh.visible = false; scene.add(boardMesh);
   const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.95, 1.5, 32, 1, true), new THREE.MeshBasicMaterial({ color: 0x6fd3ff, transparent: true, opacity: 0.0, depthWrite: false, side: THREE.DoubleSide }));
   beam.position.set(0, 1.9, -0.3); scene.add(beam);
-  const BS = { cands: [], title: "", note: "", show: false, t: 9, flash: "" };
+  const BS = { cands: [], title: "", note: "", show: false, t: 9, flash: "", mode: "cands", chart: null };
   const ballColor = (n) => (n <= 10 ? "#f5b800" : n <= 20 ? "#3b8fe0" : n <= 30 ? "#e0483f" : n <= 40 ? "#8a93a5" : "#3fae5a");
   const rr = (g, x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
   const drawBoard = () => {
     const g = bctx; g.clearRect(0, 0, BW, BH);
     g.fillStyle = "rgba(14,24,52,0.88)"; rr(g, 6, 6, BW - 12, BH - 12, 34); g.fill();
     g.lineWidth = 5; g.strokeStyle = "rgba(111,211,255,0.9)"; rr(g, 6, 6, BW - 12, BH - 12, 34); g.stroke();
+    if (BS.mode === "chart" && BS.chart) {         // 검정 결과 그래프: 막대 = 관측, 점선 = 기대(이론)
+      const ch = BS.chart, bars = ch.bars.slice(0, 8), n = bars.length;
+      g.fillStyle = "#9fe3ff"; g.font = "700 30px 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif"; g.textBaseline = "middle"; g.textAlign = "left"; g.fillText(ch.title, 40, 50);
+      const top = 96, bot = BH - 118, rh = Math.min(48, (bot - top) / Math.max(1, n)), x0 = 190, bw = 520;
+      const vmax = Math.max(...bars.map((b) => Math.max(b.v, b.ref || 0))) * 1.12 || 1, same = bars.every((b) => b.ref === bars[0].ref);
+      bars.forEach((b, i) => {
+        const y = top + i * rh + rh / 2, w = Math.max(6, bw * b.v / vmax);
+        g.textAlign = "right"; g.fillStyle = "#e8f3ff"; g.font = "600 24px 'Malgun Gothic', sans-serif"; g.fillText(b.label, x0 - 14, y);
+        g.fillStyle = "rgba(255,255,255,0.1)"; rr(g, x0, y - rh * 0.3, bw, rh * 0.6, 8); g.fill();
+        const diff = b.ref ? (b.v - b.ref) / b.ref : 0;
+        g.fillStyle = Math.abs(diff) < 0.06 ? "#6fd3ff" : diff > 0 ? "#ffd24a" : "#9b8cff"; rr(g, x0, y - rh * 0.3, w, rh * 0.6, 8); g.fill();
+        if (!same && b.ref) { const rx = x0 + bw * b.ref / vmax; g.strokeStyle = "rgba(255,255,255,0.85)"; g.lineWidth = 3; g.setLineDash([5, 4]); g.beginPath(); g.moveTo(rx, y - rh * 0.42); g.lineTo(rx, y + rh * 0.42); g.stroke(); g.setLineDash([]); }
+        g.textAlign = "left"; g.fillStyle = "#fff"; g.font = "800 24px sans-serif"; g.fillText(Number(b.v).toFixed(ch.dec == null ? 1 : ch.dec) + (ch.unit || ""), x0 + bw + 16, y);
+        if (b.p != null) { g.fillStyle = "rgba(200,225,255,0.8)"; g.font = "500 20px sans-serif"; g.fillText("p " + b.p, x0 + bw + 130, y); }
+      });
+      if (same && bars[0].ref) { const rx = x0 + bw * bars[0].ref / vmax; g.strokeStyle = "rgba(255,255,255,0.9)"; g.lineWidth = 3; g.setLineDash([6, 5]); g.beginPath(); g.moveTo(rx, top - 4); g.lineTo(rx, top + n * rh + 4); g.stroke(); g.setLineDash([]); }
+      g.textAlign = "left"; g.textBaseline = "middle"; g.font = "700 26px 'Malgun Gothic', sans-serif";
+      g.fillStyle = BS.vkey === "sig" ? "#ffb36b" : BS.vkey === "weak" ? "#ffd24a" : "#7be6a8"; g.fillText("판정: " + (BS.verdict || ""), 40, BH - 62);
+      g.fillStyle = "rgba(160,200,240,0.75)"; g.font = "500 20px 'Malgun Gothic', sans-serif"; g.fillText("p ≥ 0.05 = 우연과 구별 안 됨 · 증거 없음 ≠ 효과 없음의 증명", 40, BH - 26);
+      btex.needsUpdate = true; return;
+    }
     g.fillStyle = "#9fe3ff"; g.font = "700 34px 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif"; g.textBaseline = "middle"; g.textAlign = "left";
     g.fillText(BS.title || "회의 자료", 40, 52);
     g.font = "500 24px 'Malgun Gothic', sans-serif"; g.fillStyle = "rgba(200,225,255,0.85)"; g.textAlign = "right"; g.fillText(BS.note || "당첨 확률은 모두 1/8,145,060", BW - 40, 52);
@@ -497,7 +518,9 @@ function mountRoom(el, opts) {
     setCands(items, added) { BS.cands = (added ? BS.cands : []).concat(items.map((c) => ({ letter: c.letter, nums: c.nums, pop: null, co: null, checked: false, picked: false }))); BS.title = "코드가 뽑은 후보"; BS.show = true; drawBoard(); boardPop(); },
     check(letter, pop, co) { const c = BS.cands.find((x) => x.letter === letter); if (!c) return; c.pop = pop; c.co = co; c.checked = true; BS.title = "후보 " + letter + " 검사"; BS.flash = letter; drawBoard(); boardPop(); setTimeout(() => { BS.flash = ""; drawBoard(); }, 1400); },
     picks(letters) { BS.cands.forEach((c) => { c.picked = letters.includes(c.letter); }); BS.title = "최종 선택 ★"; BS.show = true; drawBoard(); boardPop(); },
-    hideBoard() { BS.show = false; },
+    /** 검정 결과 그래프: chart { title, bars:[{label,v,ref,p}], unit, dec }, verdict(코드 판정 글), vkey(none|weak|sig) */
+    setChart(chart, verdict, vkey) { BS.mode = "chart"; BS.chart = chart; BS.verdict = verdict; BS.vkey = vkey; BS.show = true; drawBoard(); boardPop(); },
+    hideBoard() { BS.show = false; BS.mode = "cands"; },
     destroy() { running = false; renderer.dispose(); canvas.remove(); },
   };
 }

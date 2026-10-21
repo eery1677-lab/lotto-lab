@@ -817,6 +817,16 @@
         <div class="tcard-f"><span class="small muted">평균 조합: 1,000원당 ${avg["1000원당 기대 환급"] ?? "-"}원 · 1등 세후 ${avg["세후"] ? won(avg["세후"]) : "-"}</span>
           ${addBtn(games, `${games.length}게임 모두 담기`)}</div></div>`;
     }
+    if (name === "research_report" && r.rows) {
+      const badge = { none: "구별 안 됨", weak: "우연일 수 있음", sig: "차이 있음" }[r.vkey] || "";
+      return `<div class="tcard rep">
+        <div class="tcard-h">연구 결과 보고서 <span class="muted small">· 로또·뽀또·꼼꼼이 회의</span></div>
+        <div class="rep-title">${esc(r.title)}</div>
+        <div class="small muted">가설: ${esc(r.hypothesis)} · 검정: ${esc(r.test)}</div>
+        ${r.rows.map(([k, v]) => `<div class="rep-row"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("")}
+        <div class="rep-verdict ${esc(r.vkey)}"><b>${esc(badge)}</b> ${esc(r.verdict)} · p = ${r.p}</div>
+        <ul class="rep-cav">${r.caveats.map((c) => `<li>${esc(c)}</li>`).join("")}</ul></div>`;
+    }
     if (name === "check_numbers" && Array.isArray(r["번호"])) {
       const pat = Array.isArray(r["알려진 인기 모양"]) ? r["알려진 인기 모양"] : [];
       return `<div class="tcard">
@@ -1458,7 +1468,7 @@
     return `<div class="tcard"><div class="tcard-h">${added ? "새 후보" : "코드가 뽑은 후보"} <span class="muted small">· 당첨 확률은 모두 같아요</span></div>
       ${items.map((c) => `<div class="tcard-row"><span class="lbl">${c.letter}</span>${balls(c.nums, null, "sm")}<span class="small muted">인기도 ${c.pop} · 1,000원당 ${c.ev}원</span></div>`).join("")}</div>`;
   }
-  async function runDuo(text) {
+  async function runDuo(text, mode) {
     $("#chat-text").value = ""; $("#chat-text").style.height = "auto";
     addMsg("user", text);
     const el = addMsg("bot", "", null, "think"), body = $(".body", el);
@@ -1472,8 +1482,8 @@
     };
     (async () => {                                          // 서버가 한 줄씩 보내는 이벤트를 큐에 쌓는다
       try {
-        const r = await fetch("/api/meeting", { method: "POST", headers: { "Content-Type": "application/json" }, signal: ctrl.signal,
-          body: JSON.stringify({ base: lmsBase(), cast: ["lotto", "ppoddo"].concat(Kkom.on ? ["kkom"] : []), models: { lotto: charModel("lotto"), ppoddo: charModel("ppoddo"), kkom: charModel("kkom") } }) });
+        const r = await fetch(mode === "research" ? "/api/research" : "/api/meeting", { method: "POST", headers: { "Content-Type": "application/json" }, signal: ctrl.signal,
+          body: JSON.stringify({ base: lmsBase(), topic: text, cast: ["lotto", "ppoddo"].concat(Kkom.on ? ["kkom"] : []), models: { lotto: charModel("lotto"), ppoddo: charModel("ppoddo"), kkom: charModel("kkom") } }) });
         if (!r.ok || !r.body) throw new Error(r.status === 404 ? "NOAPI" : `오류 ${r.status}`);
         const rd = r.body.getReader(), dec = new TextDecoder(); let buf = "";
         for (;;) {
@@ -1517,6 +1527,12 @@
       } else if (ev.type === "check") {
         if (Room.open) { Room.api.check(ev.letter, ev.pop, ev.co); roomKinetic("", "lotto", "인기도 " + ev.pop); }
         duo.insertAdjacentHTML("beforeend", `<div class="duo-note">로또가 후보 ${ev.letter}를 검사했어요 · 인기도 ${ev.pop} · 1등 동반 약 ${ev.co}명 · 알려진 인기 모양: ${esc(ev.pattern)}</div>`);
+      } else if (ev.type === "result") {                       // 로또가 검정을 돌렸다: 공중 화면 그래프 + 튀어나오는 글자
+        duo.insertAdjacentHTML("beforeend", `<div class="duo-note">로또가 검정을 돌렸어요 · ${esc(ev.test)} · <b>p = ${ev.p}</b> · ${esc(ev.verdict)}</div>`);
+        if (Room.open) { Room.api.setChart(ev.chart, ev.verdict, ev.vkey); roomKinetic("", "lotto", ev.kin); setTimeout(() => roomKinetic("", "kkom", ev.vkey === "none" ? "구별 안 됨" : ev.vkey === "weak" ? "우연일 수도" : "유의!"), 900); Room.api.gesture("lotto", "point"); }
+      } else if (ev.type === "report") {
+        card = { name: "research_report", result: ev.report }; chatMood("wink");
+        if (Room.open) Object.keys(WHO_LABEL).forEach((k) => Room.api.gesture(k, "nod"));
       } else if (ev.type === "research") {
         duo.insertAdjacentHTML("beforeend", `<div class="duo-note">로또가 조사 자료를 찾아봤어요 · ${ev.titles.map(esc).join(", ")}</div>`);
       } else if (ev.type === "picks") {
@@ -1527,7 +1543,7 @@
     Roam.talking = false; Pet.roam && Pet.roam.talk(false); Pet.girl && Pet.girl.talk(false); Pet.kkom && Pet.kkom.talk(false);
     roomClose(); setTimeout(gatherEnd, 2500);              // 마무리 인사 뒤 회의실이 닫히고 잠시 뒤 흩어진다
     chat.busy = false; $("#chat-send").textContent = "보내기";
-    if (!gotLine && err === "NOAPI") return runDuoClassic(text, { el });         // 서버가 옛 버전이면 예전 방식으로
+    if (!gotLine && err === "NOAPI" && mode !== "research") return runDuoClassic(text, { el });         // 서버가 옛 버전이면 예전 방식으로
     if (err && err !== "NOAPI") duo.insertAdjacentHTML("beforeend", `<div class="duo-note">회의가 중간에 멈췄어요: ${esc(err)}</div>`);
     if (!gotLine && !err) { body.innerHTML = "회의를 시작하지 못했어요."; chatMood("worry"); return; }
     if (card) appendCards(el, [card]);
@@ -1560,6 +1576,7 @@
     text = (text || "").trim();
     if (!text || chat.busy) return;
     $(".chips-welcome")?.remove(); closePop(); stopVoice();
+    if (text.length < 90 && (/(통계|검정|가설|연구|분석).{0,14}(회의|상의)|(회의|상의).{0,14}(통계|검정|가설|연구)|연구 회의/.test(text))) return runDuo(text, "research");
     if (/상의|둘이|셋이|회의/.test(text) && text.length < 90) return runDuo(text);
     const who = whoOf(forceWho || addressee(text));
     const model = $("#lms-model").value;
