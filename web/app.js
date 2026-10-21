@@ -59,7 +59,9 @@
   }
 
   // ---------------------------------------------------------------- 탭
+  let viewBeforeSettings = "home";
   function showView(v) {
+    const curV = ($(".view.active") || {}).id; if (v === "settings" && curV && curV !== "view-settings") viewBeforeSettings = curV.replace("view-", "");
     $$(".nav-btn").forEach((b) => b.classList.toggle("active", b.dataset.view === v));
     $$(".view").forEach((s) => s.classList.toggle("active", s.id === "view-" + v));
     document.body.classList.toggle("ai-mode", v === "ai");
@@ -67,10 +69,45 @@
       if (bar && cur && bar.scrollWidth > bar.clientWidth) bar.scrollTo({ left: cur.offsetLeft - (bar.clientWidth - cur.offsetWidth) / 2, behavior: "smooth" }); }
     store.set("view", v);
     if (v === "ai") initChat();
-    if (v === "settings" && $("#set-model-lotto").options.length <= 1) loadModels();        // 캐릭터별 모델 목록은 설정 탭에서도 필요
+    if (v === "settings" && $("#set-model-lotto").options.length <= 1) loadModels();
+    if (v === "settings") loadVoices();        // 캐릭터별 모델 목록은 설정 탭에서도 필요
     window.scrollTo(0, 0);
   }
   $$(".nav-btn").forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
+  $("#settings-close").addEventListener("click", () => showView(viewBeforeSettings || "home"));
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#view-settings").classList.contains("active") && $("#phone-modal").hidden) showView(viewBeforeSettings || "home"); });
+  // ---- 캐릭터별 목소리(로컬 AI 목소리): 정해진 9가지 중 고르기 + 말투 한 줄 + 들어 보기
+  async function loadVoices() {
+    const box = $("#voice-rows"); if (!box) return;
+    let data; try { data = await (await fetch("/api/tts/voices")).json(); } catch (e) { box.innerHTML = ""; return; }
+    const order = ["lotto", "ppoddo", "kkom"].filter((k) => data.voices[k]);
+    if (!order.length) { box.innerHTML = ""; return; }
+    const opts = (sel) => data.speakers.map((sp) => `<option value="${sp.id}"${sp.id === sel ? " selected" : ""}>${esc(sp.label)}</option>`).join("");
+    box.innerHTML = order.map((k) => { const v = data.voices[k]; return `<div class="voice-row" data-who="${k}">
+      <div class="vr-top"><b>${esc((WHO[k] || {}).name || v.label)} 목소리</b>
+        <div class="vr-ctl"><select class="vr-spk">${opts(v.speaker)}</select><button class="btn sm vr-play" type="button">들어 보기</button></div></div>
+      <input type="text" class="vr-style" maxlength="200" value="${esc(v.style)}" placeholder="말투 한 줄 (예: 귀엽고 밝게, 톤을 높게)">
+      <span class="vr-state">${v.sample ? "녹음 샘플이 있어 그 목소리를 따라 해요(위 선택은 샘플이 없을 때만 쓰여요)." : ""}</span></div>`; }).join("");
+    $$(".voice-row", box).forEach((row) => {
+      const who = row.dataset.who, state = $(".vr-state", row);
+      const save = async () => {
+        try { await api("/api/tts/voices", { who, speaker: $(".vr-spk", row).value, style: $(".vr-style", row).value }); state.textContent = "저장했어요."; }
+        catch (e) { state.textContent = "저장하지 못했어요: " + e.message; }
+      };
+      $(".vr-spk", row).addEventListener("change", save);
+      $(".vr-style", row).addEventListener("change", save);
+      $(".vr-play", row).addEventListener("click", async (e) => {
+        const b = e.currentTarget; b.disabled = true; state.textContent = "목소리를 만드는 중이에요… (이 PC 는 CPU 로 만들어서 1분 가까이 걸릴 수 있어요)";
+        try {
+          await save();
+          const line = { lotto: "안녕하세요, 대장님. 저는 로또예요.", ppoddo: "대장님, 안녕하세요! 저는 뽀또예요.", kkom: "안녕하세요, 대장님. 검산 담당 꼼꼼이입니다." }[who] || "안녕하세요, 대장님.";
+          const blob = await ttsFetch(line, who); state.textContent = "재생 중…";
+          await playBlob(blob, Voice.q, null, null); state.textContent = "";
+        } catch (err) { state.textContent = "만들지 못했어요(로컬 목소리 서비스가 꺼져 있거나 설치되지 않았어요)."; }
+        b.disabled = false;
+      });
+    });
+  }
   $("#update-btn").addEventListener("click", async (e) => {
     const b = e.currentTarget; b.disabled = true; b.textContent = "확인 중…";
     try {

@@ -85,7 +85,7 @@ def synth(text, voice):
     import numpy as np
     import soundfile as sf
     cfg = voices().get(voice) or voices().get("lotto") or {}
-    key = hashlib.md5(f"{voice}|{text}".encode("utf-8")).hexdigest()
+    key = hashlib.md5(f"{voice}|{json.dumps(cfg, sort_keys=True, ensure_ascii=False)}|{text}".encode("utf-8")).hexdigest()
     if key in STATE["cache"]:
         return STATE["cache"][key]
     with LOCK:

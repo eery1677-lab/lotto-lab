@@ -324,6 +324,19 @@ TTS_PORT = int(os.environ.get("LOTTO_TTS_PORT", "3650"))
 _tts = {"proc": None, "started": 0.0}
 
 
+TTS_SPEAKERS = [("sohee", "소희 — 한국어 여성 (추천)"), ("serena", "세레나 — 여성"), ("vivian", "비비안 — 여성"), ("ono_anna", "오노 안나 — 일본어 여성"),
+                ("ryan", "라이언 — 남성"), ("aiden", "에이든 — 남성"), ("dylan", "딜런 — 남성"), ("eric", "에릭 — 남성"), ("uncle_fu", "푸 아저씨 — 중년 남성")]
+VOICES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "voice", "voices.json")
+
+
+def _voices_read():
+    try:
+        with open(VOICES_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
 def _tts_python():
     d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "voice", ".venv")
     for rel in (("Scripts", "pythonw.exe"), ("Scripts", "python.exe"), ("bin", "python")):
@@ -420,6 +433,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(s)
         if path == "/api/network":
             return self._json({"lan": LAN["on"], "port": PORT, "ips": _local_ips()})
+        if path == "/api/tts/voices":
+            v = _voices_read()
+            out = {k: {"label": c.get("label", k), "speaker": c.get("speaker", "sohee"), "style": c.get("style", ""),
+                       "sample": bool(c.get("sample") and os.path.exists(os.path.join(os.path.dirname(VOICES_FILE), c["sample"])))} for k, c in v.items()}
+            return self._json({"voices": out, "speakers": [{"id": i, "label": l} for i, l in TTS_SPEAKERS]})
         if path == "/api/tts/status":
             installed = _tts_python() is not None
             try:
@@ -518,6 +536,17 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, TypeError) as e:
                 return self._json({"error": str(e)}, 400)
             return self._json(tickets.report(a.draws, a.draws[-1]["no"] + 1))
+        if path == "/api/tts/voices":
+            v = _voices_read()
+            who, spk, style = str(body.get("who") or ""), str(body.get("speaker") or ""), str(body.get("style") or "").strip()[:200]
+            if who not in v or spk not in dict(TTS_SPEAKERS):
+                return self._json({"error": "알 수 없는 캐릭터나 목소리"}, 400)
+            v[who]["speaker"], v[who]["style"] = spk, style
+            tmp = VOICES_FILE + ".tmp"
+            with open(tmp, "w", encoding="utf-8", newline="") as f:
+                json.dump(v, f, ensure_ascii=False, indent=2)
+            os.replace(tmp, VOICES_FILE)
+            return self._json({"ok": True})
         if path == "/api/tts":
             try:
                 req = urllib.request.Request(f"http://127.0.0.1:{TTS_PORT}/speak", data=json.dumps(body, ensure_ascii=False).encode("utf-8"),

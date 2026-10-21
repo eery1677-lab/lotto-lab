@@ -8,7 +8,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#f5b800">
 <link rel="apple-touch-icon" href="icon-180.png">
-<link rel="stylesheet" href="style.css?v=34">
+<link rel="stylesheet" href="style.css?v=35">
 </head>
 <body>
 <div class="app">
@@ -342,7 +342,7 @@
     </section>
     <!-- 설정 -->
     <section class="view" id="view-settings">
-      <h1>설정</h1>
+      <div class="set-head"><h1>설정</h1><button class="btn sm" id="settings-close" type="button" aria-label="설정 닫기">✕ 닫기</button></div>
       <div class="set-group">
         <h2>화면</h2>
         <div class="set-row"><div class="set-txt"><b>화면 밝기</b><span>자동은 휴대폰·PC 설정을 따라가요.</span></div>
@@ -378,6 +378,8 @@
             <option value="1">기기 목소리</option>
             <option value="2">자연스러운 목소리 (인터넷)</option>
           </select></div>
+        <div id="voice-rows"></div>
+        <div class="set-note" id="voice-note">캐릭터별 목소리는 "로컬 AI 목소리"일 때 쓰여요. 기기 목소리일 때는 캐릭터마다 높낮이만 달라요.</div>
       </div>
       <div class="set-group">
         <h2>휴대폰에서 보기</h2>
@@ -406,7 +408,7 @@
 </div>
 <script src="vendor/qrcode.min.js"></script>
 <script src="machine.js?v=8"></script>
-<script src="app.js?v=49"></script>
+<script src="app.js?v=50"></script>
 <script type="module" src="lotto3d.js?v=18"></script>
 </body>
 </html>
