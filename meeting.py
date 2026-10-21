@@ -9,13 +9,13 @@ import re
 
 import chat_tools
 
-NAME = {"lotto": "로또", "ppoddo": "뽀또"}
+NAME = {"lotto": "로또", "ppoddo": "뽀또", "kkom": "꼼꼼이"}
 LETTERS = "ABCDEFGH"
 TAG = re.compile(r"\[\s*도구\s*:\s*([^\]]+?)\s*\]")
 NUM = re.compile(r"\d[\d,]*(?:\.\d+)?")
 
 COMMON = (
-    "너희 둘은 '로또 확률 연구소'의 캐릭터이고, 지금 대장님을 위해 이번 주 로또 번호 후보를 함께 회의한다. "
+    "너희는 '로또 확률 연구소'의 캐릭터(로또, 뽀또, 그리고 있으면 꼼꼼이)이고, 지금 대장님을 위해 이번 주 로또 번호 후보를 함께 회의한다. "
     "사용자는 반드시 '대장님'이라고만 부른다(사장님·고객님·사용자 금지).\n"
     "[반드시 지킬 것]\n"
     "1. 로또 번호는 예측할 수 없고 모든 조합의 1등 확률은 1/8,145,060 으로 같다. '맞힐 수 있다', '이 번호가 나올 것이다'라는 말은 절대 하지 않는다. "
@@ -26,6 +26,11 @@ COMMON = (
 )
 
 PERSONA = {
+    "kkom": (
+        "너는 '꼼꼼이' — 연구소의 회계사이자 검증 담당. 민트색 몸에 초록 눈가리개(바이저)를 썼다. 차분하고 또박또박한 존댓말(~입니다, ~예요)로 짧게 말하고, 로또와 뽀또를 '로또 님', '뽀또 님'이 아니라 '로또', '뽀또'라고 부른다. "
+        "역할: 방금 나온 말이 [검산 메모]와 맞는지 대조해 맞으면 짧게 확인하고 틀리거나 과장됐으면 바로잡는다. 근거 없는 낙관에 제동을 걸고, 게임 수에 따른 비용·예산 한도·번호 겹침을 챙긴다. "
+        "인기도는 1.0이 평균이고 낮을수록 좋은 쪽이라는 해석을 정확히 지킨다. 분위기에 휩쓸리지 않지만 차갑지 않게, 마지막엔 두 사람을 응원한다."
+    ),
     "lotto": (
         "너는 '로또' — 안경 쓴 로또 공 박사. 근거와 숫자로 말하고 신중하며 약간 깐깐하다. 뽀또에게는 다정한 반말(~야, ~해, ~거든)을 쓴다. "
         "뽀또가 '느낌'이나 '예쁜 번호'를 말하면 '확률은 모두 똑같아'라고 부드럽게 바로잡고, 쉬운 비유로 설명한다. 도구(후보 뽑기·검사·자료)를 직접 쓰는 분석 담당이다. "
@@ -38,8 +43,14 @@ PERSONA = {
 }
 
 
+def _pop_word(p):
+    return "평균보다 낮아 좋은 쪽" if p < 0.95 else "평균보다 높아 나쁜 쪽" if p > 1.05 else "평균 수준"
+
+
 class State:
     def __init__(self):
+        self.checked = {}      # 글자 -> (인기도, 동반 당첨자, 모양)
+        self.ev_avg = 0
         self.cands = []        # {"letter","nums","raw"}
         self.avg = {}
         self.tool_notes = []   # 다음 사람에게 줄 도구 결과 글
@@ -118,19 +129,21 @@ def _valid(text, st, context):
     return True
 
 
-def run(a, ask, models, emit):
+def run(a, ask, models, emit, cast=None):
     """회의 전체를 진행하며 emit(event) 로 한 줄씩 내보낸다."""
     st = State()
     nxt, facts = _facts(a)
-    emit({"type": "start", "models": models})
+    st.ev_avg = a.money["ev_avg"][0]
+    cast = [x for x in (cast or ["lotto", "ppoddo"]) if x in NAME]
+    emit({"type": "start", "models": models, "cast": cast})
 
     def context(extra=""):
-        notes = "\n".join(st.tool_notes[-3:]) or "(없음)"
+        notes = "\n".join(st.tool_notes[-4:]) or "(없음)"
         talk = "\n".join(f"{NAME[w]}: {t}" for w, t in st.lines[-8:]) or "(아직 없음)"
         return f"[사실]\n{facts}\n\n[후보]\n{_cand_text(st)}\n\n[도구 결과]\n{notes}\n\n[지금까지 대화]\n{talk}{extra}"
 
-    def say(who, instruction, fallback, optional_tools=True, must=()):
-        ctx = context()
+    def say(who, instruction, fallback, optional_tools=True, must=(), memo=""):
+        ctx = context("\n\n[검산 메모]\n" + memo if memo else "")
         user = ctx + f"\n\n[네 차례] 너는 '{NAME[who]}'. {instruction}\n{NAME[who]}의 말만 한두 문장으로 써라."
         text, raw = "", ""
         for attempt in range(2):
@@ -177,7 +190,9 @@ def run(a, ask, models, emit):
         pat = r.get("알려진 인기 모양")
         st.tool_notes.append(
             f"{c['letter']} 검사: 인기도 {r['인기도']}, 1등 동반 당첨자 약 {r['1등 동반 당첨자']}명, 1,000원당 기대 환급 {r['1000원당 기대 환급']}원, "
-            f"과거 1등과 4개 이상 같음 {'예' if r['과거 1등과 4개 이상 같음'] else '아니오'}, 알려진 인기 모양 {pat if isinstance(pat, str) else ', '.join(pat)}")
+            f"과거 1등과 4개 이상 같음 {'예' if r['과거 1등과 4개 이상 같음'] else '아니오'}, 알려진 인기 모양 {pat if isinstance(pat, str) else ', '.join(pat)}"
+        f" (인기도는 1.0이 평균, 낮을수록 좋음 → {c['letter']}는 {_pop_word(r['인기도'])})")
+        st.checked[c["letter"]] = (r["인기도"], r["1등 동반 당첨자"], pat if isinstance(pat, str) else ", ".join(pat))
         emit({"type": "check", "who": who, "letter": c["letter"], "nums": c["nums"], "pop": r["인기도"], "co": r["1등 동반 당첨자"],
               "ev": r["1000원당 기대 환급"], "pattern": pat if isinstance(pat, str) else ", ".join(pat)})
 
@@ -206,6 +221,9 @@ def run(a, ask, models, emit):
              f"{liked[0]} 확인해 봤어. 인기도와 알려진 인기 모양을 봤을 때 나쁘지 않아.")
     if l4:
         do_tool("lotto", l4)
+    if "kkom" in cast:
+        say("kkom", "방금 로또의 설명이 [검산 메모]와 맞는지 확인한다. 맞으면 짧게 '맞습니다'라고 확인하고, 틀리거나 과장된 부분이 있으면 바로잡는다. 근거 없는 낙관에는 제동을 건다.",
+            "검산해 보니 인기도 설명이 자료와 맞습니다. 다만 확률은 모두 같다는 점은 잊지 마세요.", False, must=("인기도", "겹", "확률"), memo=_memo(st))
     # 5. 뽀또: 반론·예산
     p5 = say("ppoddo", "로또와 조금 다른 의견이나 걱정을 말한다(다른 후보가 끌린다, 느낌이 중요하다, 예산이 걱정이다 등). 대장님이 재미있게 즐기시는 게 제일 중요하다고 말한다. 원하면 새 후보를 더 뽑아 보자고 [도구:후보뽑기] 를 붙여도 된다.",
              "그래도 대장님이 재미있게 사실 수 있는 게 좋겠어. 예산도 꼭 정해 두자!")
@@ -216,6 +234,10 @@ def run(a, ask, models, emit):
              f"내 제안은 {', '.join(c['letter'] for c in st.cands[:3])}야. 확률은 모두 같지만 겹치는 사람이 적을 것 같아.")
     if l6:
         do_tool("lotto", l6)
+    if "kkom" in cast:
+        proposed = letters_in(st.lines[-1][1]) or [c["letter"] for c in st.cands[:2]]
+        say("kkom", "로또가 제안한 게임 수에 따른 비용과 번호 겹침을 [검산 메모]로 점검하고, 대장님이 정한 예산 한도 안에서만 사자고 말한다. 숫자는 메모의 것만 쓴다.",
+            f"{len(proposed)}게임이면 {len(proposed) * 1000:,}원입니다. 예산 한도를 먼저 정해 두세요.", False, must=("원",), memo=_memo(st, proposed))
     # 7. 뽀또: 동의 또는 수정
     say("ppoddo", "로또의 제안을 듣고 동의하거나 한 개만 바꾸자고 하면서 최종으로 정하자고 말한다. 알파벳을 말한다.",
         "좋아, 그럼 그렇게 정하자!", False)
@@ -236,6 +258,24 @@ def run(a, ask, models, emit):
     say("ppoddo", f"최종으로 정한 {', '.join(picks)} 를 한 번 말하고, 대장님께 재미로만 즐기고 정해 둔 예산 안에서만 사시라고 다정하게 당부한다.",
         f"대장님, 우리가 고른 건 {', '.join(picks)}예요. 재미로만 즐기시고 예산 안에서만 사세요~", False, must=("재미", "예산"))
     emit({"type": "done"})
+
+
+def _memo(st, games=None):
+    """꼼꼼이에게 주는 검산 메모: 코드가 계산한 사실만."""
+    L = ["인기도는 1.0이 평균이고 낮을수록 좋다(1등이 되면 나눠 가질 사람이 적을 것으로 추정)."]
+    for k, (pop, co, pat) in st.checked.items():
+        L.append(f"{k}: 인기도 {pop} → {_pop_word(pop)}, 1등 동반 당첨자 약 {co}명, 알려진 인기 모양 {pat}")
+    L.append(f"1,000원당 평균 약 {st.ev_avg}원이 돌아온다(전부 돌려받지 못한다).")
+    if games:
+        n = len(games)
+        L.append(f"{n}게임 = {n * 1000:,}원 (게임당 1,000원)")
+        by = {c["letter"]: set(c["nums"]) for c in st.cands}
+        for i, a in enumerate(games):
+            for b in games[i + 1:]:
+                if a in by and b in by:
+                    common = sorted(by[a] & by[b])
+                    L.append(f"{a}와 {b}의 겹치는 번호: {' '.join(map(str, common)) if common else '없음'}")
+    return "\n".join(L)
 
 
 def _final_picks(a, ask, models, st, ctx):

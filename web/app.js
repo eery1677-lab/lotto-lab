@@ -588,11 +588,11 @@
   function lmsBase() { return $("#lms-base").value.trim(); }
   function fillCharModels(ms) {
     const opts = [`<option value="">채팅과 같은 모델</option>`].concat(ms.map((m) => `<option value="${esc(m.id)}">${m.loaded ? "● " : "○ "}${esc(m.id)}</option>`)).join("");
-    for (const who of ["lotto", "ppoddo"]) {
+    for (const who of ["lotto", "ppoddo", "kkom"]) {
       const sel = $("#set-model-" + who); if (!sel) continue;
       sel.innerHTML = opts;
       let saved = store.get("model_" + who, null);
-      if (saved === null && who === "ppoddo") { const e2 = ms.find((m) => /gemma-4-e2b/.test(m.id)); saved = e2 ? e2.id : ""; store.set("model_ppoddo", saved); }
+      if (saved === null && (who === "ppoddo" || who === "kkom")) { const e2 = ms.find((m) => /gemma-4-e2b/.test(m.id)); saved = e2 ? e2.id : ""; store.set("model_" + who, saved); }
       sel.value = ms.some((m) => m.id === saved) ? saved : "";
       sel.onchange = () => store.set("model_" + who, sel.value);
     }
@@ -828,7 +828,7 @@
   const SAY = { normal: "궁금한 걸 물어보세요, 대장님!", happy: "조회했어요!", think: "자료를 확인하고 있어요…", wink: "추천 조합을 뽑았어요!", surprise: "앗, 이건 인기 모양이에요!", firm: "예측은 안 되지만, 사실은 알려 드려요.", worry: "앗, 문제가 생겼어요." };
   function roamSize() {
     const small = window.innerWidth < 600; Roam.small = small; Roam.W = small ? 100 : 150; Roam.H = small ? 115 : 172;
-    for (const id of ["#lotto-roam", "#lotto-roam2"]) { const e = $(id); if (e) { e.style.width = Roam.W + "px"; e.style.height = Roam.H + "px"; } }
+    for (const id of ["#lotto-roam", "#lotto-roam2", "#lotto-roam3"]) { const e = $(id); if (e) { e.style.width = Roam.W + "px"; e.style.height = Roam.H + "px"; } }
   }
   function roamBounds() {
     return { maxX: Math.max(9, innerWidth - Roam.W - 8), minY: Roam.small ? 66 : 56, maxY: Math.max(67, innerHeight - Roam.H - 8 - (Roam.small ? 74 : 0)) };
@@ -1032,7 +1032,7 @@
     Hop.raf = requestAnimationFrame(roamLoop);
     const dt = Hop.last ? Math.min(0.05, (ts - Hop.last) / 1000) : 0; Hop.last = ts;
     if (document.hidden) return;
-    girlFollow(dt, ts);
+    girlFollow(dt, ts); kkomFollow(dt, ts);
     const el = $("#lotto-roam"), body = $("#roam-body");
     if (Hop.dur > 0) {
       Hop.t += dt; const k = Math.min(1, Hop.t / Hop.dur);
@@ -1122,6 +1122,65 @@
     Girl.nextSay = performance.now() + 3500; setTimeout(() => girlSay("대장님, 안녕하세요~! 저는 뽀또예요."), 400);
   }
   $("#girl-btn").addEventListener("change", (e) => setGirl(e.target.checked));
+  // ---- 꼼꼼이: 회계사·검증 담당. 로또 곁(뽀또의 반대편)을 따라다니고(멀면 뛰어서, 가까우면 아장아장) 가끔 말을 건다
+  const Kkom = { on: true, x: 0, y: 0, sp: 0, dir: 1, side: 0, run: false, moving: false, placed: false, say: 0, nextSay: 0, nextMood: 0, moodT: 0 };
+  const KKOM_LINES = ["예산 한도는 정해 두셨나요, 대장님?", "확률은 모든 조합이 같습니다.", "1,000원당 평균 약 500원이 돌아옵니다. 재미로만 즐겨 주세요.", "숫자는 제가 다시 확인하겠습니다.", "무리하지 마세요, 대장님."];
+  function kkomSay(text, ms, quiet) {
+    const el = $("#roam3-say"); if (!el || !text) return;
+    $("#roam3-top").className = "roam-top" + (Roam.small ? (Kkom.x + Roam.W / 2 < innerWidth / 2 ? " left" : " right") : Kkom.x < 140 ? " left" : Kkom.x > innerWidth - 320 ? " right" : "") + (Kkom.y < (Roam.small ? 100 : 130) ? " below" : "");
+    el.className = "roam-say"; void el.offsetHeight; el.classList.add("show"); el.textContent = text;
+    clearTimeout(Kkom.say); Kkom.say = setTimeout(() => el.classList.remove("show"), ms || 4200);
+    if (quiet) return;
+    speakLine(text, "kkom", Pet.kkom);
+    kkomMood("firm", Math.min(3200, (ms || 4200)));
+    if (Pet.kkom && !(Voice.on && Voice.mode === 3)) { Pet.kkom.talk(true); setTimeout(() => Pet.kkom && Pet.kkom.talk(false), Math.min(3200, 600 + text.length * 120)); }
+  }
+  // 로또 곁을 부드럽게 따라간다: 속도를 서서히 올리고 줄이고(급정지·순간이동 없음), 한쪽 자리를 유지하고(화면 가장자리에서만 반대편으로),
+  // 멀 때만 뛰고(여유 두고 되돌아옴) 가까우면 아장아장, 도착하면 서서 표정을 짓는다
+  function kkomFollow(dt, ts) {
+    const el = $("#lotto-roam3"); if (!Kkom.on || !Pet.kkom || el.hidden) return;
+    const { maxX, maxY, minY } = roamBounds(), K = Roam.W / 150;
+    // 꼼꼼이는 뽀또의 반대편에 선다. 반대편에 자리가 없으면 뽀또와 같은 쪽 한 칸 더 바깥에.
+    let far = 1;
+    Kkom.side = Girl.on && Girl.side && !$("#lotto-roam2").hidden ? -Girl.side : (Kkom.side || (Kkom.x < Roam.x ? -1 : 1));
+    const want = (sd) => Roam.x + sd * 135 * K * far;
+    if (want(Kkom.side) < 8 || want(Kkom.side) > maxX) { if (Girl.on && Girl.side) { Kkom.side = Girl.side; far = 2; } else Kkom.side = -Kkom.side; }
+    const tx = Math.max(8, Math.min(maxX, want(Kkom.side))), ty = Math.max(minY, Math.min(maxY, Roam.y + 12 * K));
+    const dx = tx - Kkom.x, dy = ty - Kkom.y, d = Math.hypot(dx, dy);
+    const still = Roam.ask || Roam.talking;
+    if (!Kkom.run && d > 300 * K) Kkom.run = true; else if (Kkom.run && d < 150 * K) Kkom.run = false;
+    const goal = still || d < (Kkom.moving ? 10 : 42) * K ? 0 : K * (Kkom.run ? Math.min(340, 80 + d * 1.1) : Math.min(120, 30 + d * 0.9));
+    const k = 1 - Math.exp(-(goal > Kkom.sp ? 5 : 8) * dt);                           // 가속은 천천히, 감속은 조금 빨리
+    Kkom.sp += (goal - Kkom.sp) * k;
+    Kkom.moving = Kkom.sp > 6;
+    if (Kkom.moving && d > 0.5) {
+      const step = Math.min(d, Kkom.sp * dt); Kkom.x += dx / d * step; Kkom.y += dy / d * step;
+      if (Math.abs(dx) > 14) Kkom.dir = dx > 0 ? 1 : -1;
+      Pet.kkom.walk(true, Kkom.dir || 1, Kkom.run ? "hop" : "waddle");
+    } else { Pet.kkom.walk(false); Kkom.sp = 0; }
+    const ph = ts * (Kkom.run ? 0.013 : 0.007), bob = Kkom.moving ? Math.abs(Math.sin(ph)) * (Kkom.run ? Math.min(12, Kkom.sp / 25) : 3) : 0;
+    el.style.transform = `translate(${Kkom.x.toFixed(1)}px,${(Kkom.y - bob).toFixed(1)}px)`;
+    // 표정: 서 있을 때 가끔 웃거나 윙크, 말풍선을 띄울 땐 기쁜 표정
+    if (!Kkom.moving && ts > Kkom.nextMood) { Kkom.nextMood = ts + rnd(7000, 14000); kkomMood(Math.random() < 0.35 ? "happy" : "firm", 1700); }
+    if (ts > Kkom.nextSay) { Kkom.nextSay = ts + rnd(40000, 70000); if (!Roam.talking && !Roam.ask) kkomSay(KKOM_LINES[Math.floor(Math.random() * KKOM_LINES.length)]); }
+  }
+  function kkomMood(m, back) {
+    if (!Pet.kkom) return; Pet.kkom.setMood(m); clearTimeout(Kkom.moodT);
+    if (back) Kkom.moodT = setTimeout(() => { if (Pet.kkom && Pet.kkom.mood === m) Pet.kkom.setMood("normal"); }, back);
+  }
+  function setKkom(on) {
+    Kkom.on = on; store.set("kkom", on ? "1" : "0");
+    $("#kkom-btn").checked = on;
+    const el = $("#lotto-roam3"); el.hidden = !(on && Roam.on);
+    if (el.hidden) { Pet.kkom && Pet.kkom.walk(false); return; }
+    if (!Pet.kkom && window.Lotto3D && window.Lotto3D.ok) {
+      Pet.kkom = window.Lotto3D.mount($("#roam3-body"), { variant: "kkom", onTap: () => { if (!Pet.kkom) return; Math.random() < 0.5 ? Pet.kkom.hop() : Pet.kkom.wave(); kkomSay(["안녕하세요, 대장님. 꼼꼼이입니다.", "숫자 검산은 제가 맡고 있어요.", "예산은 꼭 정해 두세요."][Math.floor(Math.random() * 3)]); } });
+    }
+    if (!Pet.kkom) { el.hidden = true; return; }
+    if (!Kkom.placed) { Kkom.x = Math.max(8, Math.min(innerWidth - Roam.W - 8, Roam.x + 140 * (Roam.W / 150))); Kkom.y = Roam.y; Kkom.placed = true; el.style.transform = `translate(${Kkom.x}px,${Kkom.y}px)`; }
+    Kkom.nextSay = performance.now() + 9000; setTimeout(() => kkomSay("안녕하세요, 대장님. 검산 담당 꼼꼼이입니다."), 400);
+  }
+  $("#kkom-btn").addEventListener("change", (e) => setKkom(e.target.checked));
   // ---- 휴대폰으로 보기: 접속 주소와 QR(Tailscale 이 있으면 먼저, 같은 와이파이는 그다음)
   async function openPhone() {
     const m = $("#phone-modal"), body = $("#phone-body"); m.hidden = false;
@@ -1148,7 +1207,7 @@
     $("#roam-btn").checked = on;
     roamSize();
     const el = $("#lotto-roam"); el.hidden = !on; cancelAnimationFrame(Hop.raf); Hop.raf = 0; Hop.last = 0; Hop.dur = 0;
-    if (!on) { Pet.roam && Pet.roam.walk(false); setGirl(Girl.on); return; }
+    if (!on) { Pet.roam && Pet.roam.walk(false); setGirl(Girl.on); setKkom(Kkom.on); return; }
     if (!Pet.roam && window.Lotto3D && window.Lotto3D.ok) {
       Pet.roam = window.Lotto3D.mount($("#roam-body"), { onTap: () => { if (!Pet.roam) return; Math.random() < 0.5 ? Pet.roam.hop() : Pet.roam.wave(); popSound(Roam.x); openAsk(!$("#roam-ask").hidden ? false : true); } });
     }
@@ -1156,11 +1215,12 @@
     roamPlace(Roam.x || innerWidth - Roam.W - 30, Roam.y || roamBounds().maxY);
     Pet.roam.onStep(() => { if (Hop.mode === "waddle") popSound(Roam.x, true); });
     Hop.left = 0; Hop.rest = 1.2; Hop.raf = requestAnimationFrame(roamLoop);
-    setGirl(Girl.on);
+    setGirl(Girl.on); setKkom(Kkom.on);
   }
   window.addEventListener("resize", () => { roamSize(); if (Roam.on) { const b = roamBounds(); roamPlace(Math.max(0, Math.min(Roam.x, b.maxX)), Math.max(0, Math.min(Roam.y, b.maxY))); } });
   $("#snd-btn").addEventListener("change", (e) => { Roam.snd = e.target.checked; store.set("snd", Roam.snd ? "1" : "0"); if (Roam.snd) popSound(Roam.x); });
   Girl.on = store.get("girl", "1") === "1"; $("#girl-btn").checked = Girl.on;
+  Kkom.on = store.get("kkom", "1") === "1"; $("#kkom-btn").checked = Kkom.on;
   Roam.snd = store.get("snd", "1") === "1"; $("#snd-btn").checked = Roam.snd;
   $("#roam-btn").addEventListener("change", (e) => setRoam(e.target.checked));
   // ---- 답변 읽어 주기 켜고 끄기
@@ -1268,7 +1328,7 @@
     (async () => {                                          // 서버가 한 줄씩 보내는 이벤트를 큐에 쌓는다
       try {
         const r = await fetch("/api/meeting", { method: "POST", headers: { "Content-Type": "application/json" }, signal: ctrl.signal,
-          body: JSON.stringify({ base: lmsBase(), models: { lotto: charModel("lotto"), ppoddo: charModel("ppoddo") } }) });
+          body: JSON.stringify({ base: lmsBase(), cast: ["lotto", "ppoddo"].concat(Kkom.on ? ["kkom"] : []), models: { lotto: charModel("lotto"), ppoddo: charModel("ppoddo"), kkom: charModel("kkom") } }) });
         if (!r.ok || !r.body) throw new Error(r.status === 404 ? "NOAPI" : `오류 ${r.status}`);
         const rd = r.body.getReader(), dec = new TextDecoder(); let buf = "";
         for (;;) {
@@ -1283,8 +1343,8 @@
       push({ type: "__end" });
     })();
     const duo = document.createElement("div"); duo.className = "duo"; body.innerHTML = ""; body.appendChild(duo);
-    const showGirl = Roam.on && Girl.on && Pet.girl && !$("#lotto-roam2").hidden, showLotto = Roam.on && Pet.roam;
-    Roam.talking = true;                                   // 회의하는 동안 둘 다 멈춰 선다
+    const showGirl = Roam.on && Girl.on && Pet.girl && !$("#lotto-roam2").hidden, showLotto = Roam.on && Pet.roam, showKkom = Roam.on && Kkom.on && Pet.kkom && !$("#lotto-roam3").hidden;
+    Roam.talking = true;                                   // 회의하는 동안 모두 멈춰 선다
     const said = []; let card = null, err = "", gotLine = false;
     for (;;) {
       if (!q.length) { await new Promise((r) => { wake = r; }); continue; }
@@ -1292,12 +1352,15 @@
       if (ev.type === "__end" || ctrl.signal.aborted || my !== Voice.q) break;
       if (ev.type === "line") {
         gotLine = true;
-        const isL = ev.who === "lotto", pet = isL ? (showLotto ? Pet.roam : null) : (showGirl ? Pet.girl : null);
-        duo.insertAdjacentHTML("beforeend", `<div class="duo-line ${ev.who}"><b>${isL ? "로또" : "뽀또"}</b><span>${esc(ev.text)}</span></div>`);
+        const isL = ev.who === "lotto", isK = ev.who === "kkom", nm = isL ? "로또" : isK ? "꼼꼼이" : "뽀또";
+        const pet = isL ? (showLotto ? Pet.roam : null) : isK ? (showKkom ? Pet.kkom : null) : (showGirl ? Pet.girl : null);
+        duo.insertAdjacentHTML("beforeend", `<div class="duo-line ${ev.who}"><b>${nm}</b><span>${esc(ev.text)}</span></div>`);
         $("#chat-log").scrollTop = 1e9;
         const ms = Math.max(3000, ev.text.length * 105);
-        if (isL) { if (showLotto) roamSay(ev.text, ms); } else if (showGirl) { girlSay(ev.text, ms, true); girlMood(/[?？]|…/.test(ev.text) ? "think" : "happy", 1800); }
-        said.push(`${isL ? "로또" : "뽀또"}: ${ev.text}`);
+        if (isL) { if (showLotto) roamSay(ev.text, ms); }
+        else if (isK) { if (showKkom) { kkomSay(ev.text, ms, true); kkomMood("firm", 1800); } }
+        else if (showGirl) { girlSay(ev.text, ms, true); girlMood(/[?？]|…/.test(ev.text) ? "think" : "happy", 1800); }
+        said.push(`${nm}: ${ev.text}`);
         await duoVoice(ev.text, ev.who, my, pet);
       } else if (ev.type === "cands") {
         duo.insertAdjacentHTML("beforeend", `<div class="duo-card">${candsCardHTML(ev.items, ev.added)}</div>`); $("#chat-log").scrollTop = 1e9;
@@ -1309,7 +1372,7 @@
         card = ev.card; chatMood("wink");
       } else if (ev.type === "error") { err = ev.message || "알 수 없는 오류"; }
     }
-    Roam.talking = false; Pet.roam && Pet.roam.talk(false); Pet.girl && Pet.girl.talk(false);
+    Roam.talking = false; Pet.roam && Pet.roam.talk(false); Pet.girl && Pet.girl.talk(false); Pet.kkom && Pet.kkom.talk(false);
     chat.busy = false; $("#chat-send").textContent = "보내기";
     if (!gotLine && err === "NOAPI") return runDuoClassic(text, { el });         // 서버가 옛 버전이면 예전 방식으로
     if (err && err !== "NOAPI") duo.insertAdjacentHTML("beforeend", `<div class="duo-note">회의가 중간에 멈췄어요: ${esc(err)}</div>`);

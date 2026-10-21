@@ -538,6 +538,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"error": str(e)}, 400)
         m = body.get("models") or {}
         models = {"lotto": str(m.get("lotto") or "")[:120], "ppoddo": str(m.get("ppoddo") or m.get("lotto") or "")[:120]}
+        models["kkom"] = str(m.get("kkom") or models["ppoddo"])[:120]
+        cast = [x for x in (body.get("cast") or ["lotto", "ppoddo"]) if x in ("lotto", "ppoddo", "kkom")]
 
         def ask(model, system, user, max_tokens):
             payload = {"model": model, "temperature": 0.8, "max_tokens": max_tokens,
@@ -550,7 +552,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         try:
-            meeting.run(a, ask, models, self._sse)
+            meeting.run(a, ask, models, self._sse, cast)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             return
         except Exception as e:

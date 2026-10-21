@@ -8,7 +8,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#f5b800">
 <link rel="apple-touch-icon" href="icon-180.png">
-<link rel="stylesheet" href="style.css?v=30">
+<link rel="stylesheet" href="style.css?v=31">
 </head>
 <body>
 <div class="app">
@@ -354,6 +354,8 @@
           <label class="switch"><input type="checkbox" id="roam-btn"><i></i></label></div>
         <div class="set-row"><div class="set-txt"><b>뽀또(여자친구)와 함께</b><span>뽀또가 로또를 따라다니며 가끔 말을 걸어요.</span></div>
           <label class="switch"><input type="checkbox" id="girl-btn"><i></i></label></div>
+        <div class="set-row"><div class="set-txt"><b>꼼꼼이(검산 담당)와 함께</b><span>숫자와 예산을 다시 확인하는 회계사 캐릭터예요. 회의에도 나와요.</span></div>
+          <label class="switch"><input type="checkbox" id="kkom-btn"><i></i></label></div>
         <div class="set-row"><div class="set-txt"><b>통통 소리</b><span>뛸 때 나는 작은 효과음이에요.</span></div>
           <label class="switch"><input type="checkbox" id="snd-btn"><i></i></label></div>
       </div>
@@ -363,6 +365,8 @@
           <select id="set-model-lotto"><option value="">불러오는 중…</option></select></div>
         <div class="set-row"><div class="set-txt"><b>뽀또</b><span>질문·예산·느낌 담당. 작은 모델(예: gemma-4-e2b)도 잘 어울려요.</span></div>
           <select id="set-model-ppoddo"><option value="">불러오는 중…</option></select></div>
+        <div class="set-row"><div class="set-txt"><b>꼼꼼이</b><span>검산·예산 담당. 짧게 확인만 해서 작은 모델로 충분해요.</span></div>
+          <select id="set-model-kkom"><option value="">불러오는 중…</option></select></div>
         <div class="set-note">● 는 LM Studio 에 이미 올라간 모델이에요. ○ 를 고르면 처음 쓸 때 LM Studio 가 불러와서 느릴 수 있어요. 두 모델을 같이 올려 두면 회의가 빨라요(그래픽 메모리 필요). 숫자와 번호는 어느 모델이든 코드가 계산해요.</div>
       </div>
       <div class="set-group">
@@ -390,6 +394,7 @@
 </div>
 <div class="toast" id="toast"></div>
 <div class="lotto-roam" id="lotto-roam" hidden><div class="roam-top" id="roam-top"><div class="roam-say" id="roam-say"></div><form class="roam-ask" id="roam-ask" hidden><input id="roam-q" type="text" maxlength="200" autocomplete="off" placeholder="로또에게 말 걸기…"><button type="submit" aria-label="보내기">↵</button></form></div><div class="roam-body" id="roam-body" title="로또 — 끌어서 돌려 보세요, 클릭하면 인사해요"></div></div>
+<div class="lotto-roam" id="lotto-roam3" hidden><div class="roam-top" id="roam3-top"><div class="roam-say" id="roam3-say"></div></div><div class="roam-body" id="roam3-body" title="꼼꼼이 — 검산 담당"></div></div>
 <div class="lotto-roam" id="lotto-roam2" hidden><div class="roam-top" id="roam2-top"><div class="roam-say" id="roam2-say"></div></div><div class="roam-body" id="roam2-body" title="뽀또 — 로또의 여자친구"></div></div>
 <div class="phone-modal" id="phone-modal" hidden>
   <div class="phone-card">
@@ -401,7 +406,7 @@
 </div>
 <script src="vendor/qrcode.min.js"></script>
 <script src="machine.js?v=8"></script>
-<script src="app.js?v=40"></script>
-<script type="module" src="lotto3d.js?v=15"></script>
+<script src="app.js?v=42"></script>
+<script type="module" src="lotto3d.js?v=17"></script>
 </body>
 </html>

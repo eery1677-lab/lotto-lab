@@ -12,5 +12,12 @@
     "sample_text": "",
     "speaker": "sohee",
     "style": "상냥하고 사랑스러운 여자아이 목소리로, 살짝 높은 톤으로 귀엽게 말해 주세요."
+  },
+  "kkom": {
+    "label": "꼼꼼이",
+    "sample": "kkom.m4a",
+    "sample_text": "",
+    "speaker": "ryan",
+    "style": "차분하고 또박또박한 회계사 말투로, 조금 낮은 톤으로 침착하게 말해 주세요."
   }
 }
