@@ -8,7 +8,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#f5b800">
 <link rel="apple-touch-icon" href="icon-180.png">
-<link rel="stylesheet" href="style.css?v=27">
+<link rel="stylesheet" href="style.css?v=29">
 </head>
 <body>
 <div class="app">
@@ -23,15 +23,10 @@
     <button class="nav-btn" data-view="popular"><span class="ico">👥</span>인기 번호 분석</button>
     <button class="nav-btn" data-view="ai"><span class="ico">🤖</span>AI 상담</button>
     <button class="nav-btn" data-view="learn"><span class="ico">📖</span>로또의 원리</button>
+    <button class="nav-btn" data-view="settings"><span class="ico">⚙️</span>설정</button>
     <div class="side-foot">
       <div id="data-status">자료 불러오는 중…</div>
-      <button class="theme-btn" id="theme-btn">화면 밝기 전환</button>
-      <button class="theme-btn" id="phone-btn">휴대폰으로 보기</button>
-      <button class="theme-btn" id="roam-btn">로또 돌아다니기</button>
-      <button class="theme-btn" id="snd-btn">통통 소리</button>
-      <button class="theme-btn" id="girl-btn">뽀또(여자친구)</button>
-      <button class="theme-btn" id="tts-btn">답변 읽어 주기</button>
-      <div style="margin-top:10px">도박 고민 상담 <b>국번없이 1336</b></div>
+      <div class="side-help">도박 고민 상담 <b>국번없이 1336</b></div>
     </div>
   </nav>
 
@@ -241,8 +236,6 @@
           </div>
           <div class="chat-info" id="chat-info" hidden>
             <div class="callout ai small">이 컴퓨터의 LM Studio 로만 동작합니다(인터넷으로 나가지 않음). AI 는 코드가 계산한 숫자만 쓰도록 지시되어 있고, 자료에 없는 숫자를 쓰면 답 아래에 표시됩니다.</div>
-            <button class="btn sm" id="tts-btn2" type="button">답변 읽어 주기</button>
-            <button class="btn sm" id="roam-btn2" type="button">로또·뽀또 돌아다니기</button>
             <label>LM Studio 주소 <input type="text" id="lms-base" value="http://127.0.0.1:1234" style="width:230px"></label>
           </div>
           <div class="card soft" id="eval-panel" hidden style="margin-bottom:10px"></div>
@@ -347,6 +340,44 @@
         </div>
       </div>
     </section>
+    <!-- 설정 -->
+    <section class="view" id="view-settings">
+      <h1>설정</h1>
+      <div class="set-group">
+        <h2>화면</h2>
+        <div class="set-row"><div class="set-txt"><b>화면 밝기</b><span>자동은 휴대폰·PC 설정을 따라가요.</span></div>
+          <select id="set-theme"><option value="auto">자동</option><option value="light">밝게</option><option value="dark">어둡게</option></select></div>
+      </div>
+      <div class="set-group">
+        <h2>캐릭터</h2>
+        <div class="set-row"><div class="set-txt"><b>로또 돌아다니기</b><span>로또가 화면 안을 통통 뛰어다녀요. 클릭하면 말을 걸 수 있어요.</span></div>
+          <label class="switch"><input type="checkbox" id="roam-btn"><i></i></label></div>
+        <div class="set-row"><div class="set-txt"><b>뽀또(여자친구)와 함께</b><span>뽀또가 로또를 따라다니며 가끔 말을 걸어요.</span></div>
+          <label class="switch"><input type="checkbox" id="girl-btn"><i></i></label></div>
+        <div class="set-row"><div class="set-txt"><b>통통 소리</b><span>뛸 때 나는 작은 효과음이에요.</span></div>
+          <label class="switch"><input type="checkbox" id="snd-btn"><i></i></label></div>
+      </div>
+      <div class="set-group">
+        <h2>목소리</h2>
+        <div class="set-row"><div class="set-txt"><b>답변 읽어 주기</b><span id="tts-hint">끔</span></div>
+          <select id="tts-select">
+            <option value="0">끔</option>
+            <option value="3">로컬 AI 목소리 (이 PC에서 만듦)</option>
+            <option value="1">기기 목소리</option>
+            <option value="2">자연스러운 목소리 (인터넷)</option>
+          </select></div>
+      </div>
+      <div class="set-group">
+        <h2>휴대폰에서 보기</h2>
+        <div class="set-row"><div class="set-txt"><b>접속 주소와 QR</b><span>같은 와이파이거나 Tailscale 이 켜져 있으면 휴대폰으로 그대로 써요.</span></div>
+          <button class="btn sm" id="phone-btn" type="button">주소·QR 보기</button></div>
+      </div>
+      <div class="set-group">
+        <h2>자료</h2>
+        <div class="set-row"><div class="set-txt"><b>새 회차 확인</b><span id="set-data-note">동행복권에서 최신 당첨 결과를 받아 와요.</span></div>
+          <button class="btn sm" id="update-btn" type="button">지금 확인</button></div>
+      </div>
+    </section>
   </main>
 </div>
 <div class="toast" id="toast"></div>
@@ -362,7 +393,7 @@
 </div>
 <script src="vendor/qrcode.min.js"></script>
 <script src="machine.js?v=8"></script>
-<script src="app.js?v=37"></script>
+<script src="app.js?v=38"></script>
 <script type="module" src="lotto3d.js?v=15"></script>
 </body>
 </html>

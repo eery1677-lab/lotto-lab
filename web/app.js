@@ -70,18 +70,24 @@
     window.scrollTo(0, 0);
   }
   $$(".nav-btn").forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
+  $("#update-btn").addEventListener("click", async (e) => {
+    const b = e.currentTarget; b.disabled = true; b.textContent = "확인 중…";
+    try {
+      const res = await api("/api/update", {});
+      toast(res.ok ? `${res.latest}회까지 최신입니다` : "업데이트 실패: " + (res.error || ""));
+      await load();
+    } catch (err) { toast(err.message); }
+    b.disabled = false; b.textContent = "지금 확인";
+  });
 
-  // 화면 밝기
+  // 화면 밝기 (설정 탭: 자동 / 밝게 / 어둡게)
   (function theme() {
-    const saved = store.get("theme", "");
+    const saved = store.get("theme", ""), sel = $("#set-theme");
     if (saved) document.documentElement.dataset.theme = saved;
-    $("#theme-btn").addEventListener("click", () => {
-      const dark = document.documentElement.dataset.theme
-        ? document.documentElement.dataset.theme === "dark"
-        : matchMedia("(prefers-color-scheme: dark)").matches;
-      const next = dark ? "light" : "dark";
-      document.documentElement.dataset.theme = next;
-      store.set("theme", next);
+    sel.value = saved || "auto";
+    sel.addEventListener("change", () => {
+      if (sel.value === "auto") { delete document.documentElement.dataset.theme; store.set("theme", ""); }
+      else { document.documentElement.dataset.theme = sel.value; store.set("theme", sel.value); }
     });
   })();
 
@@ -180,16 +186,8 @@
       <td class="small muted" style="text-align:right;white-space:nowrap">1등 ${x.winners[0]}명<br>${x.winners[0] ? won(x.amounts[0]) : "이월"}</td></tr>`).join("");
     const st = S.status;
     $("#data-status").innerHTML = `자료: ${S.latest.no}회까지<br><span class="small">다음 추첨 ${esc(st.next_draw)}</span>
-      ${st.updating ? "<br>새 회차 확인 중…" : ""}${st.error ? `<br><span style="color:var(--warn)">업데이트 실패(저장된 자료 사용)</span>` : ""}
-      <br><button class="theme-btn" id="update-btn">지금 새 회차 확인</button>`;
-    $("#update-btn").addEventListener("click", async (e) => {
-      e.target.disabled = true; e.target.textContent = "확인 중…";
-      try {
-        const res = await api("/api/update", {});
-        toast(res.ok ? `${res.latest}회까지 최신입니다` : "업데이트 실패: " + (res.error || ""));
-        await load();
-      } catch (err) { toast(err.message); }
-    });
+      ${st.updating ? "<br>새 회차 확인 중…" : ""}${st.error ? `<br><span style="color:var(--warn)">업데이트 실패(저장된 자료 사용)</span>` : ""}`;
+    $("#set-data-note").textContent = `${S.latest.no}회까지 · 다음 추첨 ${st.next_draw}` + (st.error ? " · 마지막 업데이트 실패(저장된 자료 사용)" : "");
     $("#prob-list").innerHTML = ["1등 (6개)", "2등 (5개+보너스)", "3등 (5개)", "4등 (4개)", "5등 (3개)"]
       .map((k, i) => `<li>${k}: ${m.prob.rank[i]}</li>`).join("");
     $("#ev-text").innerHTML = `동행복권 전 회차의 당첨금 총액을 판매액으로 나누면 <b>${m.payout_pct_all}%</b>(최근 52회 ${m.payout_pct_recent}%)입니다.
@@ -1100,7 +1098,7 @@
   }
   function setGirl(on) {
     Girl.on = on; store.set("girl", on ? "1" : "0");
-    $("#girl-btn").classList.toggle("on", on); $("#girl-btn").textContent = "뽀또(여자친구): " + (on ? "함께" : "없음");
+    $("#girl-btn").checked = on;
     const el = $("#lotto-roam2"); el.hidden = !(on && Roam.on);
     if (el.hidden) { Pet.girl && Pet.girl.walk(false); return; }
     if (!Pet.girl && window.Lotto3D && window.Lotto3D.ok) {
@@ -1110,7 +1108,7 @@
     if (!Girl.placed) { Girl.x = Math.max(8, Math.min(innerWidth - Roam.W - 8, Roam.x - 140 * (Roam.W / 150))); Girl.y = Roam.y; Girl.placed = true; el.style.transform = `translate(${Girl.x}px,${Girl.y}px)`; }
     Girl.nextSay = performance.now() + 3500; setTimeout(() => girlSay("대장님, 안녕하세요~! 저는 뽀또예요."), 400);
   }
-  $("#girl-btn").addEventListener("click", () => setGirl(!Girl.on));
+  $("#girl-btn").addEventListener("change", (e) => setGirl(e.target.checked));
   // ---- 휴대폰으로 보기: 접속 주소와 QR(Tailscale 이 있으면 먼저, 같은 와이파이는 그다음)
   async function openPhone() {
     const m = $("#phone-modal"), body = $("#phone-body"); m.hidden = false;
@@ -1134,7 +1132,7 @@
   function setRoam(on) {
     Roam.on = on; store.set("roam", on ? "1" : "0");
     document.body.classList.toggle("roam-on", on && !!Pet.big);
-    $("#roam-btn").classList.toggle("on", on); $("#roam-btn").textContent = "로또 돌아다니기: " + (on ? "켬" : "끔"); $("#roam-btn2").textContent = "로또·뽀또 돌아다니기: " + (on ? "켬" : "끔");
+    $("#roam-btn").checked = on;
     roamSize();
     const el = $("#lotto-roam"); el.hidden = !on; cancelAnimationFrame(Hop.raf); Hop.raf = 0; Hop.last = 0; Hop.dur = 0;
     if (!on) { Pet.roam && Pet.roam.walk(false); setGirl(Girl.on); return; }
@@ -1148,30 +1146,30 @@
     setGirl(Girl.on);
   }
   window.addEventListener("resize", () => { roamSize(); if (Roam.on) { const b = roamBounds(); roamPlace(Math.max(0, Math.min(Roam.x, b.maxX)), Math.max(0, Math.min(Roam.y, b.maxY))); } });
-  $("#snd-btn").addEventListener("click", () => { Roam.snd = !Roam.snd; store.set("snd", Roam.snd ? "1" : "0"); $("#snd-btn").classList.toggle("on", Roam.snd); $("#snd-btn").textContent = "통통 소리: " + (Roam.snd ? "켬" : "끔"); if (Roam.snd) popSound(Roam.x); });
-  Girl.on = store.get("girl", "1") === "1"; $("#girl-btn").classList.toggle("on", Girl.on); $("#girl-btn").textContent = "뽀또(여자친구): " + (Girl.on ? "함께" : "없음");
-  Roam.snd = store.get("snd", "1") === "1"; $("#snd-btn").classList.toggle("on", Roam.snd); $("#snd-btn").textContent = "통통 소리: " + (Roam.snd ? "켬" : "끔");
-  $("#roam-btn").addEventListener("click", () => setRoam(!Roam.on));
-  $("#roam-btn2").addEventListener("click", () => setRoam(!Roam.on));
+  $("#snd-btn").addEventListener("change", (e) => { Roam.snd = e.target.checked; store.set("snd", Roam.snd ? "1" : "0"); if (Roam.snd) popSound(Roam.x); });
+  Girl.on = store.get("girl", "1") === "1"; $("#girl-btn").checked = Girl.on;
+  Roam.snd = store.get("snd", "1") === "1"; $("#snd-btn").checked = Roam.snd;
+  $("#roam-btn").addEventListener("change", (e) => setRoam(e.target.checked));
   // ---- 답변 읽어 주기 켜고 끄기
-  function setTts(mode) {     // 0 끔 · 1 기기 목소리 · 2 자연스러운(인터넷) 목소리
+  const TTS_HINT = { 0: "꺼져 있어요.", 1: "이 기기에 들어 있는 한국어 목소리예요. 글이 밖으로 나가지 않아요.", 2: "자연스럽지만 읽을 글이 마이크로소프트 서버로 가요.", 3: "이 PC에서 AI 로 만든 로또·뽀또 목소리예요. 글이 밖으로 나가지 않아요(PC 가 느리면 기기 목소리로 이어 읽어요)." };
+  function setTts(mode) {     // 0 끔 · 1 기기 목소리 · 2 자연스러운(인터넷) 목소리 · 3 로컬 AI 목소리
     Voice.on = mode > 0; Voice.mode = mode || 1; Voice.voice = null; store.set("tts", String(mode));
     if (!mode) { stopVoice(); chatTalk(false); }
-    const b = $("#tts-btn"); b.classList.toggle("on", mode > 0);
-    const b2 = $("#tts-btn2"); const label = (mode === 3 ? "로컬 AI 목소리" : mode === 2 ? "자연스러운(인터넷)" : mode === 1 ? "기기 목소리" : "끔"); if (b2) b2.textContent = "답변 읽어 주기: " + label;
-    b.textContent = "답변 읽어 주기: " + (mode === 3 ? "로컬 AI 목소리" : mode === 2 ? "자연스러운(인터넷)" : mode === 1 ? "기기 목소리" : "끔");
+    const sel = $("#tts-select"); if (sel) sel.value = String(mode);
+    const hint = $("#tts-hint"); if (hint) hint.textContent = TTS_HINT[mode] || "";
   }
-  $("#tts-btn2").addEventListener("click", () => $("#tts-btn").click());
-  $("#tts-btn").addEventListener("click", async () => {
-    const cur = Voice.on ? Voice.mode : 0, hello = "안녕하세요, 대장님. 이제 답변을 읽어 드릴게요.";
-    const st = await fetch("/api/tts/status").then((r) => r.json()).catch(() => ({ installed: false }));
-    const avail = { 3: !!st.installed, 1: !!pickVoice(1), 2: !!pickVoice(2) };
-    const order = [3, 1, 2];
-    const nxt = order.slice(cur ? order.indexOf(cur) + 1 : 0).find((m) => avail[m]);
-    if (!nxt) { if (cur === 0 && !("speechSynthesis" in window)) alert("이 브라우저는 소리 내어 읽기를 지원하지 않습니다."); return setTts(0); }
-    if (nxt === 2 && !confirm("자연스러운 목소리는 인터넷(마이크로소프트 서버)으로 읽을 글을 보냅니다. 로또 상담 답변만 해당하고 고객 정보는 없습니다.\n그래도 쓸까요?")) return setTts(0);
-    setTts(nxt);
-    speakAnswer(hello);
+  $("#tts-select").addEventListener("change", async () => {
+    const want = Number($("#tts-select").value), prev = Voice.on ? Voice.mode : 0, hello = "안녕하세요, 대장님. 이제 답변을 읽어 드릴게요.";
+    const back = (msg) => { toast(msg); setTts(prev); };
+    if (!want) return setTts(0);
+    if (!("speechSynthesis" in window) && want !== 3) return back("이 브라우저는 소리 내어 읽기를 지원하지 않아요");
+    if (want === 3) { const st = await fetch("/api/tts/status").then((r) => r.json()).catch(() => ({})); if (!st.installed) return back("이 PC에 로컬 AI 목소리가 설치돼 있지 않아요"); }
+    if (want === 1 && !pickVoice(1)) return back("이 기기에 한국어 목소리가 없어요");
+    if (want === 2) {
+      if (!pickVoice(2)) return back("이 브라우저에는 자연스러운(인터넷) 목소리가 없어요");
+      if (!confirm("자연스러운 목소리는 인터넷(마이크로소프트 서버)으로 읽을 글을 보냅니다. 로또 상담 답변만 해당하고 고객 정보는 없습니다.\n그래도 쓸까요?")) return setTts(prev);
+    }
+    setTts(want); speakAnswer(hello);
   });
   if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = () => { Voice.voice = null; };
   { const m = Number(store.get("tts", "0")); setTimeout(() => setTts(m === 3 || (m && pickVoice(m)) ? m : 0), 600); }
