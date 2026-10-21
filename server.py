@@ -23,6 +23,7 @@ import answer_check
 import briefing
 import chat_tools
 import duo
+import meeting
 import tickets
 from analysis import Analyzer
 
@@ -515,6 +516,8 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 _ensure_tts()
                 return self._json({"error": "음성 서비스를 켜는 중입니다"}, 503)
+        if path == "/api/meeting":
+            return self._meeting(a, body)
         if path == "/api/duo":
             def ask(system, user):
                 base = _lms_base(body.get("base"))
@@ -526,6 +529,35 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/chat":
             return self._chat(a, body)
         return self._json({"error": "없음"}, 404)
+
+    def _meeting(self, a, body):
+        """로또·뽀또 회의: 캐릭터마다 다른 모델을 쓸 수 있고, 한 줄씩 SSE 로 내보낸다."""
+        try:
+            base = _lms_base(body.get("base"))
+        except ValueError as e:
+            return self._json({"error": str(e)}, 400)
+        m = body.get("models") or {}
+        models = {"lotto": str(m.get("lotto") or "")[:120], "ppoddo": str(m.get("ppoddo") or m.get("lotto") or "")[:120]}
+
+        def ask(model, system, user, max_tokens):
+            payload = {"model": model, "temperature": 0.8, "max_tokens": max_tokens,
+                       "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}]}
+            resp, _ = _lms_post(base, payload, stream=False)
+            return json.loads(resp.read().decode("utf-8"))["choices"][0]["message"]["content"] or ""
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        try:
+            meeting.run(a, ask, models, self._sse)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            return
+        except Exception as e:
+            try:
+                self._sse({"type": "error", "message": f"{type(e).__name__} {str(e)[:120]}"})
+            except Exception:
+                pass
 
     def _sse(self, obj):
         self.wfile.write(("data: " + json.dumps(obj, ensure_ascii=False) + "\n\n").encode("utf-8"))

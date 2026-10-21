@@ -67,6 +67,7 @@
       if (bar && cur && bar.scrollWidth > bar.clientWidth) bar.scrollTo({ left: cur.offsetLeft - (bar.clientWidth - cur.offsetWidth) / 2, behavior: "smooth" }); }
     store.set("view", v);
     if (v === "ai") initChat();
+    if (v === "settings" && $("#set-model-lotto").options.length <= 1) loadModels();        // 캐릭터별 모델 목록은 설정 탭에서도 필요
     window.scrollTo(0, 0);
   }
   $$(".nav-btn").forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
@@ -585,6 +586,17 @@
   // ---------------------------------------------------------------- AI 상담
   const chat = { inited: false, history: [], busy: false, ctrl: null };
   function lmsBase() { return $("#lms-base").value.trim(); }
+  function fillCharModels(ms) {
+    const opts = [`<option value="">채팅과 같은 모델</option>`].concat(ms.map((m) => `<option value="${esc(m.id)}">${m.loaded ? "● " : "○ "}${esc(m.id)}</option>`)).join("");
+    for (const who of ["lotto", "ppoddo"]) {
+      const sel = $("#set-model-" + who); if (!sel) continue;
+      sel.innerHTML = opts;
+      let saved = store.get("model_" + who, null);
+      if (saved === null && who === "ppoddo") { const e2 = ms.find((m) => /gemma-4-e2b/.test(m.id)); saved = e2 ? e2.id : ""; store.set("model_ppoddo", saved); }
+      sel.value = ms.some((m) => m.id === saved) ? saved : "";
+      sel.onchange = () => store.set("model_" + who, sel.value);
+    }
+  }
   async function loadModels() {
     const sel = $("#lms-model"), dot = $("#lms-dot");
     sel.innerHTML = `<option value="">연결 중…</option>`;
@@ -599,6 +611,7 @@
       sel.innerHTML = ms.map((m) => `<option value="${esc(m.id)}">${m.id === best ? "★ " : ""}${m.loaded ? "● " : "○ "}${esc(m.id)}${m.ctx ? ` (${Math.round(m.ctx / 1024)}K)` : ""}</option>`).join("");
       sel.value = ms.some((m) => m.id === saved) ? saved
         : ms.some((m) => m.id === best) ? best : (ms.find((m) => m.loaded) || ms[0]).id;
+      fillCharModels(ms);
       dot.className = "dot ok";
       dot.title = "LM Studio 연결됨 (● = 로드된 모델, ○ 는 고르면 LM Studio 가 불러옴)";
     } catch (e) {
@@ -757,7 +770,7 @@
       return `<div class="tcard">
         <div class="tcard-h">추천 조합 <span class="muted small">· 당첨 확률은 모두 1/8,145,060 · 담으면 ${next} 구매 기록에 저장</span></div>
         ${r["조합"].map((c, i) => `<div class="tcard-row">
-          <span class="lbl">${String.fromCharCode(65 + i)}</span>${balls(c["번호"], null, "sm")}
+          <span class="lbl">${c["글자"] || String.fromCharCode(65 + i)}</span>${balls(c["번호"], null, "sm")}
           <span class="small muted">인기도 ${c["인기도"]} · 1,000원당 ${c["1000원당 기대 환급"]}원 · 1등 세후 ${won(c["세후"])}</span>
           ${addBtn([c["번호"]], "담기")}</div>`).join("")}
         <div class="tcard-f"><span class="small muted">평균 조합: 1,000원당 ${avg["1000원당 기대 환급"] ?? "-"}원 · 1등 세후 ${avg["세후"] ? won(avg["세후"]) : "-"}</span>
@@ -1201,10 +1214,10 @@
       } else { if (pet) pet.talk(true); setTimeout(fin, wait); }
     });
   }
-  async function runDuo(text) {
+  async function runDuoClassic(text, reuse) {
     $("#chat-text").value = ""; $("#chat-text").style.height = "auto";
-    addMsg("user", text);
-    const el = addMsg("bot", "", null, "think"), body = $(".body", el);
+    if (!reuse) addMsg("user", text);
+    const el = reuse ? reuse.el : addMsg("bot", "", null, "think"), body = $(".body", el);
     body.innerHTML = `<span class="typing">로또와 뽀또가 상의 중…</span>`;
     chat.busy = true; $("#chat-send").textContent = "중지"; chatMood("think");
     let j;
@@ -1234,6 +1247,76 @@
     chatMood("wink");
     const transcript = j.lines.map((l) => `${l.who === "lotto" ? "로또" : "뽀또"}: ${l.text}`).join("\n");
     chat.history.push({ role: "user", content: text }, { role: "assistant", content: transcript, cards: [j.card], mood: "wink" });
+    store.set("chat", JSON.stringify(chat.history.slice(-20)));
+  }
+
+  // ---------------------------------------------------------------- 로또 ↔ 뽀또 회의 (/api/meeting: 한 줄씩, 캐릭터마다 다른 AI)
+  const charModel = (who) => store.get("model_" + who, "") || $("#lms-model").value || "";
+  function candsCardHTML(items, added) {
+    return `<div class="tcard"><div class="tcard-h">${added ? "새 후보" : "코드가 뽑은 후보"} <span class="muted small">· 당첨 확률은 모두 같아요</span></div>
+      ${items.map((c) => `<div class="tcard-row"><span class="lbl">${c.letter}</span>${balls(c.nums, null, "sm")}<span class="small muted">인기도 ${c.pop} · 1,000원당 ${c.ev}원</span></div>`).join("")}</div>`;
+  }
+  async function runDuo(text) {
+    $("#chat-text").value = ""; $("#chat-text").style.height = "auto";
+    addMsg("user", text);
+    const el = addMsg("bot", "", null, "think"), body = $(".body", el);
+    body.innerHTML = `<span class="typing">로또와 뽀또가 회의를 시작해요…</span>`;
+    chat.busy = true; $("#chat-send").textContent = "중지"; chatMood("think");
+    const ctrl = chat.ctrl = new AbortController(), my = ++Voice.q, q = [];
+    let wake = null;
+    const push = (ev) => { q.push(ev); if (wake) { const w = wake; wake = null; w(); } };
+    (async () => {                                          // 서버가 한 줄씩 보내는 이벤트를 큐에 쌓는다
+      try {
+        const r = await fetch("/api/meeting", { method: "POST", headers: { "Content-Type": "application/json" }, signal: ctrl.signal,
+          body: JSON.stringify({ base: lmsBase(), models: { lotto: charModel("lotto"), ppoddo: charModel("ppoddo") } }) });
+        if (!r.ok || !r.body) throw new Error(r.status === 404 ? "NOAPI" : `오류 ${r.status}`);
+        const rd = r.body.getReader(), dec = new TextDecoder(); let buf = "";
+        for (;;) {
+          const { value, done } = await rd.read(); if (done) break;
+          buf += dec.decode(value, { stream: true }); let i;
+          while ((i = buf.indexOf("\n\n")) >= 0) {
+            const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
+            if (chunk.startsWith("data:")) { try { push(JSON.parse(chunk.slice(5))); } catch (e) { /* 깨진 줄은 건너뜀 */ } }
+          }
+        }
+      } catch (e) { if (e.name !== "AbortError") push({ type: "error", message: e.message }); }
+      push({ type: "__end" });
+    })();
+    const duo = document.createElement("div"); duo.className = "duo"; body.innerHTML = ""; body.appendChild(duo);
+    const showGirl = Roam.on && Girl.on && Pet.girl && !$("#lotto-roam2").hidden, showLotto = Roam.on && Pet.roam;
+    Roam.talking = true;                                   // 회의하는 동안 둘 다 멈춰 선다
+    const said = []; let card = null, err = "", gotLine = false;
+    for (;;) {
+      if (!q.length) { await new Promise((r) => { wake = r; }); continue; }
+      const ev = q.shift();
+      if (ev.type === "__end" || ctrl.signal.aborted || my !== Voice.q) break;
+      if (ev.type === "line") {
+        gotLine = true;
+        const isL = ev.who === "lotto", pet = isL ? (showLotto ? Pet.roam : null) : (showGirl ? Pet.girl : null);
+        duo.insertAdjacentHTML("beforeend", `<div class="duo-line ${ev.who}"><b>${isL ? "로또" : "뽀또"}</b><span>${esc(ev.text)}</span></div>`);
+        $("#chat-log").scrollTop = 1e9;
+        const ms = Math.max(3000, ev.text.length * 105);
+        if (isL) { if (showLotto) roamSay(ev.text, ms); } else if (showGirl) { girlSay(ev.text, ms, true); girlMood(/[?？]|…/.test(ev.text) ? "think" : "happy", 1800); }
+        said.push(`${isL ? "로또" : "뽀또"}: ${ev.text}`);
+        await duoVoice(ev.text, ev.who, my, pet);
+      } else if (ev.type === "cands") {
+        duo.insertAdjacentHTML("beforeend", `<div class="duo-card">${candsCardHTML(ev.items, ev.added)}</div>`); $("#chat-log").scrollTop = 1e9;
+      } else if (ev.type === "check") {
+        duo.insertAdjacentHTML("beforeend", `<div class="duo-note">로또가 후보 ${ev.letter}를 검사했어요 · 인기도 ${ev.pop} · 1등 동반 약 ${ev.co}명 · 알려진 인기 모양: ${esc(ev.pattern)}</div>`);
+      } else if (ev.type === "research") {
+        duo.insertAdjacentHTML("beforeend", `<div class="duo-note">로또가 조사 자료를 찾아봤어요 · ${ev.titles.map(esc).join(", ")}</div>`);
+      } else if (ev.type === "picks") {
+        card = ev.card; chatMood("wink");
+      } else if (ev.type === "error") { err = ev.message || "알 수 없는 오류"; }
+    }
+    Roam.talking = false; Pet.roam && Pet.roam.talk(false); Pet.girl && Pet.girl.talk(false);
+    chat.busy = false; $("#chat-send").textContent = "보내기";
+    if (!gotLine && err === "NOAPI") return runDuoClassic(text, { el });         // 서버가 옛 버전이면 예전 방식으로
+    if (err && err !== "NOAPI") duo.insertAdjacentHTML("beforeend", `<div class="duo-note">회의가 중간에 멈췄어요: ${esc(err)}</div>`);
+    if (!gotLine && !err) { body.innerHTML = "회의를 시작하지 못했어요."; chatMood("worry"); return; }
+    if (card) appendCards(el, [card]);
+    $("#chat-log").scrollTop = 1e9; chatMood(card ? "wink" : "normal");
+    chat.history.push({ role: "user", content: text }, { role: "assistant", content: said.join("\n"), cards: card ? [card] : [], mood: "wink" });
     store.set("chat", JSON.stringify(chat.history.slice(-20)));
   }
 
