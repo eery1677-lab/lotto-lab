@@ -591,11 +591,13 @@
     for (const who of ["lotto", "ppoddo", "kkom"]) {
       const sel = $("#set-model-" + who); if (!sel) continue;
       sel.innerHTML = opts;
-      let saved = store.get("model_" + who, null);
-      if (saved === null && (who === "ppoddo" || who === "kkom")) { const e2 = ms.find((m) => /gemma-4-e2b/.test(m.id)); saved = e2 ? e2.id : ""; store.set("model_" + who, saved); }
+      let saved = store.get("model_" + who, "");
+      // 2026-10-21: 셋 다 같은 모델(채팅 모델)로 통일 — 예전에 자동으로 저장된 e2b 선택은 한 번만 비운다(내려 둔 모델을 다시 불러오지 않게)
+      if (store.get("models_v2", "") !== "1" && /gemma-4-e2b/.test(saved)) { saved = ""; store.set("model_" + who, ""); }
       sel.value = ms.some((m) => m.id === saved) ? saved : "";
       sel.onchange = () => store.set("model_" + who, sel.value);
     }
+    store.set("models_v2", "1");
   }
   async function loadModels() {
     const sel = $("#lms-model"), dot = $("#lms-dot");
