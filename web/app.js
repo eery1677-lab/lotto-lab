@@ -934,17 +934,6 @@
     }
     chatTalk(false);
   }
-  function speakLocalFallback(parts, my, v) {         // 로컬 서비스가 안 될 때: 기기 목소리로 이어 읽기
-    let i = 0;
-    const next = () => {
-      if (my !== Voice.q) return;
-      if (i >= parts.length) { chatTalk(false); return; }
-      const u = new SpeechSynthesisUtterance(parts[i++]); u.voice = v; u.lang = v.lang; u.rate = 1.12; u.pitch = 1.55;
-      u.onstart = () => { if (my === Voice.q) chatTalk(true); }; u.onend = next; u.onerror = () => chatTalk(false);
-      speechSynthesis.speak(u);
-    };
-    next();
-  }
   // 뽀또 같은 다른 캐릭터의 한마디(답변 읽기 중이 아닐 때만)
   function speakLine(text, voiceId, pet) {
     if (!Voice.on || Voice.mode !== 3 || Voice.audio) return;
@@ -960,7 +949,7 @@
     const parts = (clean.slice(0, 700).match(/[^.!?。\n]+[.!?。]?/g) || [clean]).map((s) => s.trim()).filter(Boolean);
     const my = ++Voice.q; let i = 0;
     if (Voice.mode === 3) {
-      speakRemote(parts, my, who).catch(() => { if (my !== Voice.q || !v) return; Voice.fail = (Voice.fail || 0) + 1; speakLocalFallback(parts, my, v); });
+      speakRemote(parts, my, who).catch(() => { if (my !== Voice.q) return; talkAs(who, false); toast("로컬 AI 목소리를 만들지 못했어요(목소리 서비스가 꺼져 있을 수 있어요)"); });
       return;
     }
     const next = () => {
@@ -1300,7 +1289,7 @@
   $("#roam-btn").addEventListener("change", (e) => setRoam(e.target.checked));
   // ---- 답변 읽어 주기 켜고 끄기
   const TTS_HINT = { 1: "이 기기에 들어 있는 한국어 목소리예요. 글이 밖으로 나가지 않아요.", 2: "자연스럽지만 읽을 글이 마이크로소프트 서버로 가요.", 3: "이 PC에서 AI 로 만든 캐릭터별 목소리예요. 글이 밖으로 나가지 않아요(PC 가 느리면 몇십 초 걸려요)." };
-  const ttsMethod = () => Number(store.get("tts_method", "1")) || 1;           // 마지막으로 고른 방식(처음엔 기기 목소리)
+  const ttsMethod = () => { const m = Number(store.get("tts_method", "3")); return m === 2 ? 2 : 3; };   // 마지막으로 고른 방식(처음엔 로컬 AI 목소리) — 기기 목소리는 더 이상 고르지 않는다
   function syncTtsUi() {
     const on = $("#tts-on"), sel = $("#tts-select"), hint = $("#tts-hint"), m = Voice.on ? Voice.mode : ttsMethod();
     if (on) on.checked = Voice.on; if (sel) sel.value = String(m);
@@ -1318,7 +1307,6 @@
     const back = (msg) => { toast(msg); setTts(prev); };
     if (!("speechSynthesis" in window) && want !== 3) return back("이 브라우저는 소리 내어 읽기를 지원하지 않아요");
     if (want === 3) { const st = await fetch("/api/tts/status").then((r) => r.json()).catch(() => ({})); if (!st.installed) return back("이 PC에 로컬 AI 목소리가 설치돼 있지 않아요"); }
-    if (want === 1 && !pickVoice(1)) return back("이 기기에 한국어 목소리가 없어요");
     if (want === 2) {
       if (!pickVoice(2)) return back("이 브라우저에는 자연스러운(인터넷) 목소리가 없어요");
       if (!confirm("자연스러운 목소리는 인터넷(마이크로소프트 서버)으로 읽을 글을 보냅니다. 로또 상담 답변만 해당하고 고객 정보는 없습니다.\n그래도 쓸까요?")) return setTts(prev);
@@ -1331,7 +1319,7 @@
     if (Voice.on) applyTts(want); else syncTtsUi();                              // 꺼져 있으면 방식만 기억해 둔다
   });
   if ("speechSynthesis" in window) speechSynthesis.onvoiceschanged = () => { Voice.voice = null; };
-  { const m = Number(store.get("tts", "0")); setTimeout(() => setTts(m === 3 || (m && pickVoice(m)) ? m : 0), 600); }
+  { const m = Number(store.get("tts", "0")); setTimeout(() => setTts(m === 3 || (m === 2 && pickVoice(2)) ? m : 0), 600); }
   window.addEventListener("lotto3d-ready", initPet);
   if (window.Lotto3D) initPet();
 
