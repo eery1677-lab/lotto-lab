@@ -79,7 +79,9 @@
   // ---- 캐릭터별 목소리(로컬 AI 목소리): 정해진 9가지 중 고르기 + 말투 한 줄 + 들어 보기
   async function loadVoices() {
     const box = $("#voice-rows"); if (!box) return;
-    let data; try { data = await (await fetch("/api/tts/voices")).json(); } catch (e) { box.innerHTML = ""; return; }
+    let data;
+    try { const r = await fetch("/api/tts/voices"); if (!r.ok) throw new Error("old"); data = await r.json(); }
+    catch (e) { box.innerHTML = `<div class="set-note">캐릭터별 목소리 선택은 <b>서버를 껐다가 다시 켜야</b> 나타나요. (바탕화면 로또 아이콘으로 서버를 다시 켜 주세요.)</div>`; return; }
     const order = ["lotto", "ppoddo", "kkom"].filter((k) => data.voices[k]);
     if (!order.length) { box.innerHTML = ""; return; }
     const opts = (sel) => data.speakers.map((sp) => `<option value="${sp.id}"${sp.id === sel ? " selected" : ""}>${esc(sp.label)}</option>`).join("");
