@@ -70,6 +70,7 @@
           <button class="btn gold" id="gen-btn">🎱 번호 뽑기 (A 게임)</button>
           <label class="chk"><input type="checkbox" id="gen-anim" checked> 추첨기 연출</label>
           <label class="chk"><input type="checkbox" id="gen-sound"> 소리</label>
+          <label class="chk"><input type="checkbox" id="gen-bgm"> 배경음악</label>
         </div>
         <div class="note">기계는 연출입니다. 번호는 컴퓨터 난수로 이미 정해진 값이고, 기계는 그 번호의 공을 꺼내 보여 줍니다.</div>
       </div>
@@ -357,6 +358,7 @@
         <h2>캐릭터</h2>
         <div class="set-row"><div class="set-txt"><b>로또 돌아다니기</b><span>로또가 화면 안을 통통 뛰어다녀요. 클릭하면 말을 걸 수 있어요.</span></div>
           <label class="switch"><input type="checkbox" id="roam-btn"><i></i></label></div>
+        <div class="set-note small" id="char-diag"></div>
         <div class="set-row"><div class="set-txt"><b>뽀또(여자친구)와 함께</b><span>뽀또가 로또를 따라다니며 가끔 말을 걸어요.</span></div>
           <label class="switch"><input type="checkbox" id="girl-btn"><i></i></label></div>
         <div class="set-row"><div class="set-txt"><b>꼼꼼이(검산 담당)와 함께</b><span>숫자와 예산을 다시 확인하는 회계사 캐릭터예요. 회의에도 나와요.</span></div>
@@ -426,8 +428,8 @@
   </div>
 </div>
 <script src="vendor/qrcode.min.js"></script>
-<script src="machine.js?v=8"></script>
-<script src="app.js?v=65"></script>
+<script src="machine.js?v=9"></script>
+<script src="app.js?v=68"></script>
 <script type="module" src="lotto3d.js?v=23"></script>
 </body>
 </html>

@@ -70,7 +70,7 @@
     store.set("view", v);
     if (v === "ai") initChat();
     if (v === "settings" && $("#set-model-lotto").options.length <= 1) loadModels();
-    if (v === "settings") { loadVoices(); loadAiRecords(); }        // 캐릭터별 모델 목록은 설정 탭에서도 필요
+    if (v === "settings") { loadVoices(); loadAiRecords(); charDiag(); }        // 캐릭터별 모델 목록은 설정 탭에서도 필요
     window.scrollTo(0, 0);
   }
   $$(".nav-btn").forEach((b) => b.addEventListener("click", () => showView(b.dataset.view)));
@@ -78,6 +78,12 @@
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#view-settings").classList.contains("active") && $("#phone-modal").hidden) showView(viewBeforeSettings || "home"); });
   // ---- 캐릭터별 목소리(로컬 AI 목소리): 정해진 9가지 중 고르기 + 말투 한 줄 + 들어 보기
   // ---- AI 단독 회의 연구 기록: 고른 번호와, 그 회차 추첨이 끝났으면 맞힌 개수(참고)
+  // 캐릭터 상태 한 줄: 휴대폰에서 안 보일 때 원인을 눈으로 확인하려고
+  function charDiag() {
+    const el = $("#char-diag"); if (!el) return;
+    const ok = !!(window.Lotto3D && window.Lotto3D.ok), y = (b) => (b ? "나옴" : "안 나옴");
+    el.textContent = `3D 화면: ${ok ? "가능" : "이 기기에서는 불가"} · 돌아다니기: ${Roam.on ? "켬" : "끔"} · 로또 ${y(Pet.roam)} · 뽀또 ${y(Pet.girl)} · 꼼꼼이 ${y(Pet.kkom)} · 화면 ${innerWidth}px`;
+  }
   async function loadAiRecords() {
     const box = $("#ai-records"); if (!box) return;
     let d; try { d = await (await fetch("/api/ai-picks")).json(); } catch (e) { box.innerHTML = `<div class="set-note">서버를 껐다가 다시 켜면 연구 기록이 나타나요.</div>`; return; }
@@ -276,12 +282,17 @@
     </div>`;
   }
   // ---- 한 게임씩 뽑기
-  const games = [];            // 이번에 뽑은 게임들
+  const games = [];            // 이번에 뽑은 게임들 (창을 닫았다 열어도 남도록 브라우저에 저장)
   const MAX_GAMES = 20;
+  try {
+    const saved = JSON.parse(store.get("games", "[]"));
+    (Array.isArray(saved) ? saved : []).slice(0, MAX_GAMES).forEach((c) => { if (c && Array.isArray(c.nums) && c.nums.length === 6 && c.nums.every((n) => n >= 1 && n <= 45)) games.push(c); });
+  } catch (e) { /* 저장값이 깨졌으면 빈 목록으로 */ }
   const letter = (i) => String.fromCharCode(65 + i);
   let busyGen = false;
   function renderGames(fresh) {
     lastCombos = games;
+    store.set("games", JSON.stringify(games));
     const box = $("#gen-result");
     if (!games.length) {
       box.innerHTML = `<div class="muted">아직 뽑은 게임이 없습니다. 위의 ‘번호 뽑기’를 눌러 한 게임씩 뽑아 보세요.</div>`;
@@ -301,15 +312,18 @@
     b.disabled = busyGen || games.length >= MAX_GAMES;
   }
   // 추첨기 연출·소리 켜기/끄기(브라우저 기억)
-  const animBox = $("#gen-anim"), soundBox = $("#gen-sound");
+  const animBox = $("#gen-anim"), soundBox = $("#gen-sound"), bgmBox = $("#gen-bgm");
   animBox.checked = store.get("gen_anim", "1") === "1";
   soundBox.checked = store.get("gen_sound", "0") === "1";
+  bgmBox.checked = store.get("gen_bgm", "1") === "1";
   function syncMachine() {
     $(".machine-stage").style.display = animBox.checked ? "" : "none";
-    soundBox.disabled = !animBox.checked;
+    soundBox.disabled = !animBox.checked; bgmBox.disabled = !animBox.checked;
+    if (window.LottoMachine) window.LottoMachine.setBgm(animBox.checked && bgmBox.checked);
     if (window.LottoMachine) window.LottoMachine.setSound(animBox.checked && soundBox.checked);
   }
   animBox.addEventListener("change", () => { store.set("gen_anim", animBox.checked ? "1" : "0"); syncMachine(); });
+  bgmBox.addEventListener("change", () => { store.set("gen_bgm", bgmBox.checked ? "1" : "0"); syncMachine(); if (bgmBox.checked) toast("배경음악을 켰습니다 — 번호를 뽑을 때 흘러나와요"); });
   soundBox.addEventListener("change", () => {
     store.set("gen_sound", soundBox.checked ? "1" : "0"); syncMachine();
     if (soundBox.checked) toast("소리를 켰습니다 — 번호를 뽑아 보세요");
@@ -376,7 +390,7 @@
     if (window.LottoMachine) window.LottoMachine.reset();
     $("#machine-status").textContent = "‘번호 뽑기’를 누르면 추첨기가 한 게임(공 6개)을 꺼냅니다.";
   });
-  renderGames();
+  renderGames(); updateDrawBtn();
   $("#gen-copy").addEventListener("click", () => copy(lastCombos.map((c, i) => `${String.fromCharCode(65 + i)}: ${c.nums.join(" ")}`).join("\n")));
 
   $("#gen-save").addEventListener("click", async () => {
@@ -1040,7 +1054,9 @@
       Pet.big = vis("#lotto-big") ? window.Lotto3D.mount($("#lotto-big"), { onTap: tap(() => Pet.big) }) : null;
       const m0 = Pet.machine, fwd = (f) => (...a) => { m0[f](...a); if (Roam.on && Pet.roam && f !== "sleep") Pet.roam[f](...a); };
       Pet.machine = m0 && { setMood: fwd("setMood"), hop: fwd("hop"), sleep: fwd("sleep"), get mood() { return m0.mood; } };
-      setRoam(store.get("roam", !matchMedia("(prefers-reduced-motion: reduce)").matches ? "1" : "0") === "1");
+      setRoam(store.get("roam", "1") === "1");
+      // 휴대폰은 3D 화면을 늦게 내주기도 해서, 뽀또·꼼꼼이가 비어 있으면 잠시 뒤 한 번 더 만들어 본다
+      setTimeout(() => { if (Roam.on) { if (Girl.on && !Pet.girl) setGirl(true); if (Kkom.on && !Pet.kkom) setKkom(true); } }, 2500);
     } catch (e) { /* 실시간 3D 만 포기 */ }
   }
   $("#brand-lotto").innerHTML = avatar("normal");
@@ -1300,7 +1316,7 @@
   };
   function setRoam(on) {
     Roam.on = on; store.set("roam", on ? "1" : "0");
-    document.body.classList.toggle("roam-on", on && !!Pet.big);
+    document.body.classList.toggle("roam-on", on && !!(window.Lotto3D && window.Lotto3D.ok));
     $("#roam-btn").checked = on;
     roamSize();
     const el = $("#lotto-roam"); el.hidden = !on; cancelAnimationFrame(Hop.raf); Hop.raf = 0; Hop.last = 0; wstate(Roam).dur = 0;

@@ -61,6 +61,43 @@
   }
   const NOTES = [523.25, 587.33, 659.25, 783.99, 880, 1046.5];
 
+  // ---------------------------------------------------------------- 배경음악(합성 반복곡: 추첨하는 동안만, 끝나면 서서히 작아짐)
+  // 파일 없이 코드로 만든 가벼운 4마디(C - Am - F - G) 반복. 효과음 '소리'와 따로 켜고 끈다.
+  const CH = [[261.63, 329.63, 392], [220, 261.63, 329.63], [174.61, 220, 261.63], [196, 246.94, 293.66]], ROOT = [130.81, 110, 87.31, 98];
+  const ARP = [0, 1, 2, 1, 0, 1, 2, 1], STEP = 0.24;
+  let bgmOn = true, bgm = null;
+  function bnote(a, dest, f, t, dur, type, vol) {
+    const o = a.createOscillator(), g = a.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t);
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(dest); o.start(t); o.stop(t + dur + 0.05);
+  }
+  function bgmStart() {
+    if (!bgmOn) return; const a = ac(); if (!a) return;
+    if (bgm) { clearTimeout(bgm.endT); bgm.out = false; bgm.gain.gain.cancelScheduledValues(a.currentTime); bgm.gain.gain.linearRampToValueAtTime(1, a.currentTime + 0.3); return; }
+    const gain = a.createGain(); gain.gain.setValueAtTime(0, a.currentTime); gain.gain.linearRampToValueAtTime(1, a.currentTime + 0.5); gain.connect(a.destination);
+    bgm = { gain, step: 0, next: a.currentTime + 0.05, out: false, endT: 0, timer: 0 };
+    const tickBgm = () => {
+      if (!bgm) return; const s = bgm;
+      while (s.next < a.currentTime + 0.35) {
+        const bar = Math.floor(s.step / 8) % 4, k = s.step % 8, t = s.next, ch = CH[bar];
+        bnote(a, gain, ch[ARP[k]] * (k % 4 === 2 ? 2 : 1), t, STEP * 1.6, "triangle", 0.05);
+        if (k === 0 || k === 4) bnote(a, gain, ROOT[bar], t, STEP * 3.2, "sine", 0.09);
+        if (k % 2 === 1) bnote(a, gain, 6000, t, 0.03, "square", 0.004);
+        s.step++; s.next += STEP;
+      }
+    };
+    bgm.timer = setInterval(tickBgm, 90); tickBgm();
+  }
+  function bgmStop(delayMs) {
+    if (!bgm) return; const s = bgm; clearTimeout(s.endT);
+    s.endT = setTimeout(() => {
+      if (bgm !== s) return; const a = ac(); s.out = true;
+      if (a) { s.gain.gain.cancelScheduledValues(a.currentTime); s.gain.gain.setValueAtTime(s.gain.gain.value, a.currentTime); s.gain.gain.linearRampToValueAtTime(0, a.currentTime + 1.4); }
+      setTimeout(() => { if (bgm === s && s.out) { clearInterval(s.timer); try { s.gain.disconnect(); } catch (e) { /* 이미 끊김 */ } bgm = null; } }, 1600);
+    }, delayMs || 0);
+  }
+
   // ---------------------------------------------------------------- 공 준비
   function resetBalls() {
     balls = [];
@@ -200,7 +237,7 @@
     play.done = true; mixLevel = 0.25; haloBoost = 1.2;
     for (let i = 0; i < 6; i++) burst(SLOT_X(i), TRAY_Y - 10, pal(play.order[i] || 1).base, 9, 1.7);
     [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(f, 0.7, "triangle", 0.1, 0, i * 0.07));
-    const cb = play.onDone; play = null;
+    const cb = play.onDone; play = null; bgmStop(2200);
     if (cb) cb();
   }
 
@@ -408,7 +445,7 @@
       for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
       mixLevel = 1;
       play = { order, next: 0, nextAt: simT + 2.1, onBall: opts.onBall, onDone: opts.onDone, done: false };
-      kick();
+      bgmStart(); kick();
       return true;
     },
     skip() {
@@ -425,6 +462,7 @@
     /** 받는 곳을 비우고 공을 통 안으로 되돌린다. */
     reset() { if (!play && canvas) { resetBalls(); for (let i = 0; i < 120; i++) step(1 / 90); } },
     setSound(on) { soundOn = !!on; if (on) ac(); },
+    setBgm(on) { bgmOn = !!on; if (!bgmOn) bgmStop(0); },
     /** 시험용: 화면 갱신과 무관하게 sec 초만큼 시간을 흘린다. */
     advance(sec) { const n = Math.round(sec * 90); for (let i = 0; i < n; i++) step(1 / 90); if (visible()) draw(); },
     isPlaying() { return !!play; },
