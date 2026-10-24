@@ -341,8 +341,8 @@
         status.textContent = `${letter(idx)} 게임을 뽑았습니다! 계속 뽑거나, 마음에 안 들면 ‘빼기’로 지우세요.`;
         busyGen = false;
         renderGames(true); updateDrawBtn();
-        const fresh = $("#gen-result .game-wrap.fresh");
-        if (fresh) fresh.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        const box = $("#gen-result");   // 페이지가 아니라 게임 목록 안쪽만 아래로: 추첨기 화면이 계속 보이게
+        if (box) box.scrollTo({ top: box.scrollHeight, behavior: "smooth" });
       };
       if (animBox.checked && M && M.play(combo.nums, {
         onBall: (i, total, n) => { status.textContent = `${letter(idx)} 게임 추첨 중… ${i} / ${total}번째 공: ${n}번`; if (Pet.machine) Pet.machine.hop(); },

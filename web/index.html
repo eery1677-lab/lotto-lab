@@ -8,7 +8,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#f5b800">
 <link rel="apple-touch-icon" href="icon-180.png">
-<link rel="stylesheet" href="style.css?v=41">
+<link rel="stylesheet" href="style.css?v=42">
 </head>
 <body>
 <div class="app">
@@ -56,6 +56,7 @@
     <section class="view" id="view-gen">
       <h1>번호 만들기</h1>
       <p class="lead">추첨기를 돌려 <b>한 게임씩</b> 직접 뽑아 보세요. 당첨 확률은 어떤 번호든 같지만, 이 추첨기는 <b>당첨됐을 때 나눠 가질 사람이 적은 조합</b>만 꺼냅니다.</p>
+      <div class="gen-grid">
       <div class="card machine-card" id="machine-card">
         <div class="machine-stage">
           <canvas id="machine" role="img" aria-label="로또 추첨기: 공이 섞이다가 번호 6개가 나오는 연출"></canvas>
@@ -81,7 +82,8 @@
             <button class="btn sm" id="gen-clear" disabled>모두 지우기</button>
           </div>
         </div>
-        <div id="gen-result"><div class="muted">아직 뽑은 게임이 없습니다. 위의 ‘번호 뽑기’를 눌러 한 게임씩 뽑아 보세요.</div></div>
+        <div id="gen-result"><div class="muted">아직 뽑은 게임이 없습니다. ‘번호 뽑기’를 눌러 한 게임씩 뽑아 보세요.</div></div>
+      </div>
       </div>
       <div class="card">
         <h2>뽑기 설정</h2>
@@ -425,7 +427,7 @@
 </div>
 <script src="vendor/qrcode.min.js"></script>
 <script src="machine.js?v=8"></script>
-<script src="app.js?v=63"></script>
+<script src="app.js?v=64"></script>
 <script type="module" src="lotto3d.js?v=23"></script>
 </body>
 </html>
