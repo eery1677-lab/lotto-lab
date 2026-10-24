@@ -81,8 +81,8 @@
       if (!bgm) return; const s = bgm;
       while (s.next < a.currentTime + 0.35) {
         const bar = Math.floor(s.step / 8) % 4, k = s.step % 8, t = s.next, ch = CH[bar];
-        bnote(a, gain, ch[ARP[k]] * (k % 4 === 2 ? 2 : 1), t, STEP * 1.6, "triangle", 0.05);
-        if (k === 0 || k === 4) bnote(a, gain, ROOT[bar], t, STEP * 3.2, "sine", 0.09);
+        bnote(a, gain, ch[ARP[k]] * (k % 4 === 2 ? 2 : 1), t, STEP * 1.6, "triangle", 0.11);
+        if (k === 0 || k === 4) bnote(a, gain, ROOT[bar], t, STEP * 3.2, "sine", 0.18);
         if (k % 2 === 1) bnote(a, gain, 6000, t, 0.03, "square", 0.004);
         s.step++; s.next += STEP;
       }
@@ -462,6 +462,8 @@
     /** 받는 곳을 비우고 공을 통 안으로 되돌린다. */
     reset() { if (!play && canvas) { resetBalls(); for (let i = 0; i < 120; i++) step(1 / 90); } },
     setSound(on) { soundOn = !!on; if (on) ac(); },
+    /** 휴대폰: 첫 터치 때 소리 장치를 깨워 둔다(그 뒤에야 소리가 난다) */
+    unlock() { const a = ac(); if (a) { try { const b = a.createBuffer(1, 1, 22050), s = a.createBufferSource(); s.buffer = b; s.connect(a.destination); s.start(0); } catch (e) { /* 무시 */ } } },
     setBgm(on) { bgmOn = !!on; if (!bgmOn) bgmStop(0); },
     /** 시험용: 화면 갱신과 무관하게 sec 초만큼 시간을 흘린다. */
     advance(sec) { const n = Math.round(sec * 90); for (let i = 0; i < n; i++) step(1 / 90); if (visible()) draw(); },

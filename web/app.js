@@ -1087,6 +1087,12 @@
   // 폴짝폴짝: 짧게 여러 번 뛰며 돌아다닌다. 뛸 때마다 방향이 조금씩 바뀌고, 가끔 크게 뛰고, 쉬었다 간다. 착지할 때 "통" 소리.
   const Hop = { mode: "hop", stepK: 0, t: 0, dur: 0, fx: 0, fy: 0, tx: 0, ty: 0, h: 0, heading: Math.random() * 6.28, left: 0, rest: 1.2, raf: 0, last: 0 };
   let audio = null;
+  // 휴대폰 브라우저는 화면을 한 번 만지기 전에는 소리를 막는다 → 첫 터치 때 두 소리 장치를 모두 깨워 둔다
+  function unlockAudio() {
+    try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); if (audio.state === "suspended") audio.resume(); } catch (e) { /* 소리 불가 */ }
+    if (window.LottoMachine && window.LottoMachine.unlock) window.LottoMachine.unlock();
+  }
+  ["pointerdown", "touchend", "click", "keydown"].forEach((ev) => window.addEventListener(ev, unlockAudio, { passive: true }));
   function popSound(x, soft) {
     if (!Roam.snd) return;
     try {
