@@ -1033,9 +1033,11 @@
     paintAvatars();
     try {
       const tap = (p) => () => { if (!p()) return; Math.random() < 0.5 ? p().hop() : p().wave(); };
-      Pet.machine = window.Lotto3D.mount($("#lotto-pet"), { onTap: tap(() => Pet.machine) });
-      Pet.chat = window.Lotto3D.mount($("#lotto-chat"), { onTap: tap(() => Pet.chat) });
-      Pet.big = window.Lotto3D.mount($("#lotto-big"), { onTap: tap(() => Pet.big) });
+      // 휴대폰은 3D 화면(WebGL) 개수 한도가 작아서, 안 보이는 자리의 로또까지 만들면 뽀또·꼼꼼이가 못 만들어진다 → 보이는 것만 만든다
+      const phone = window.innerWidth <= 900, vis = (s) => !phone || $(s).offsetParent !== null;
+      Pet.machine = vis("#lotto-pet") ? window.Lotto3D.mount($("#lotto-pet"), { onTap: tap(() => Pet.machine) }) : null;
+      Pet.chat = vis("#lotto-chat") ? window.Lotto3D.mount($("#lotto-chat"), { onTap: tap(() => Pet.chat) }) : null;
+      Pet.big = vis("#lotto-big") ? window.Lotto3D.mount($("#lotto-big"), { onTap: tap(() => Pet.big) }) : null;
       const m0 = Pet.machine, fwd = (f) => (...a) => { m0[f](...a); if (Roam.on && Pet.roam && f !== "sleep") Pet.roam[f](...a); };
       Pet.machine = m0 && { setMood: fwd("setMood"), hop: fwd("hop"), sleep: fwd("sleep"), get mood() { return m0.mood; } };
       setRoam(store.get("roam", !matchMedia("(prefers-reduced-motion: reduce)").matches ? "1" : "0") === "1");
