@@ -1054,6 +1054,8 @@
       Pet.big = vis("#lotto-big") ? window.Lotto3D.mount($("#lotto-big"), { onTap: tap(() => Pet.big) }) : null;
       const m0 = Pet.machine, fwd = (f) => (...a) => { m0[f](...a); if (Roam.on && Pet.roam && f !== "sleep") Pet.roam[f](...a); };
       Pet.machine = m0 && { setMood: fwd("setMood"), hop: fwd("hop"), sleep: fwd("sleep"), get mood() { return m0.mood; } };
+      // 예전 버전은 '모션 줄이기' 폰에서 돌아다니기를 꺼진 채로 저장해 버렸다 → 한 번만 켜 둔 상태로 되돌린다(그 뒤의 선택은 존중)
+      if (store.get("roam_v2", "") !== "1") { store.set("roam_v2", "1"); store.set("roam", "1"); store.set("girl", "1"); store.set("kkom", "1"); Girl.on = true; Kkom.on = true; $("#girl-btn").checked = true; $("#kkom-btn").checked = true; }
       setRoam(store.get("roam", "1") === "1");
       // 휴대폰은 3D 화면을 늦게 내주기도 해서, 뽀또·꼼꼼이가 비어 있으면 잠시 뒤 한 번 더 만들어 본다
       setTimeout(() => { if (Roam.on) { if (Girl.on && !Pet.girl) setGirl(true); if (Kkom.on && !Pet.kkom) setKkom(true); } }, 2500);
